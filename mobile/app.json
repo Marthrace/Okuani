@@ -1,0 +1,26 @@
+{
+  "expo": {
+    "name": "OKUANI",
+    "slug": "okuani",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.okuani.mobile"
+    },
+    "android": {
+      "package": "com.okuani.mobile",
+      "adaptiveIcon": {
+        "backgroundColor": "#123A28",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      }
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    }
+  }
+}

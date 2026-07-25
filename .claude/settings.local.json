@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python .tmp_extract.py)",
+      "Bash(mkdir -p docs)",
+      "Bash(mv \"OKUANI_Project_Proposal \\(1\\).docx\" docs/)",
+      "Bash(mv .tmp_extract.py docs/extract_proposal_text.py)",
+      "Bash(mv frontend *)",
+      "Bash(npx expo *)",
+      "Bash(npm start *)",
+      "Bash(npm run *)",
+      "Bash(curl -s http://localhost:5000/health)",
+      "Bash(curl -s -o /dev/null -w \"simulator HTTP %{http_code}\\\\n\" http://localhost:3000)",
+      "Bash(curl -s -o /dev/null -w \"mobile dev server HTTP %{http_code}\\\\n\" http://localhost:8082)"
+    ]
+  }
+}
