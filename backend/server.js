@@ -4,12 +4,19 @@ const cors = require('cors');
 const sqlite3 = require('sqlite3');
 const { open } = require('sqlite');
 const path = require('path');
+const fs = require('fs');
+const createAuthRouter = require('./routes/auth');
+const createProfilesRouter = require('./routes/profiles');
 
 const app = express();
 const PORT = Number(process.env.PORT || 5000);
 
+const uploadsDir = path.join(__dirname, 'uploads');
+fs.mkdirSync(uploadsDir, { recursive: true });
+
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '8mb' })); // profile photos are base64 JSON payloads, well over the 100kb default
+app.use('/uploads', express.static(uploadsDir));
 
 // Logger middleware
 app.use((req, res, next) => {
@@ -28,6 +35,16 @@ app.get('/health', (req, res) => {
 
 let db;
 let server;
+
+app.use('/api/auth', createAuthRouter(() => db));
+app.use('/api/profiles', createProfilesRouter(() => db, uploadsDir));
+
+async function ensureColumn(db, table, column, ddlType) {
+  const cols = await db.all(`PRAGMA table_info(${table})`);
+  if (!cols.some((c) => c.name === column)) {
+    await db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${ddlType}`);
+  }
+}
 
 async function initDb() {
   const dbPath = path.join(__dirname, 'database.sqlite');
@@ -73,6 +90,88 @@ async function initDb() {
       price_per_kg REAL,
       date TEXT,
       source TEXT
+    )
+  `);
+
+  // Create users table
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS users (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      email TEXT UNIQUE,
+      phone TEXT UNIQUE,
+      password_hash TEXT NOT NULL,
+      created_at INTEGER,
+      CHECK (email IS NOT NULL OR phone IS NOT NULL)
+    )
+  `);
+
+  // Create sessions table (opaque bearer tokens)
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS sessions (
+      token TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      created_at INTEGER,
+      expires_at INTEGER
+    )
+  `);
+
+  // Create password_resets table (simulated SMS/email verification codes)
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS password_resets (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      code TEXT NOT NULL,
+      channel TEXT,
+      destination TEXT,
+      reset_token TEXT,
+      expires_at INTEGER,
+      consumed INTEGER DEFAULT 0,
+      created_at INTEGER
+    )
+  `);
+
+  // owner_id attributes listings/messages to a guest id or a signed-up user id.
+  // Added via ALTER TABLE (not part of the CREATE TABLE above) since these
+  // tables predate auth; ensureColumn keeps this safe to re-run on restart.
+  await ensureColumn(db, 'listings', 'owner_id', 'TEXT');
+  await ensureColumn(db, 'messages', 'owner_id', 'TEXT');
+
+  // Profile fields, added the same way for the same reason (users predates profiles).
+  await ensureColumn(db, 'users', 'headline', 'TEXT');
+  await ensureColumn(db, 'users', 'about', 'TEXT');
+  await ensureColumn(db, 'users', 'avatar_path', 'TEXT');
+  await ensureColumn(db, 'users', 'cover_path', 'TEXT');
+  await ensureColumn(db, 'users', 'phone_verified', 'INTEGER DEFAULT 0');
+  await ensureColumn(db, 'users', 'id_verified', 'INTEGER DEFAULT 0');
+  await ensureColumn(db, 'users', 'location', 'TEXT');
+  await ensureColumn(db, 'users', 'role', 'TEXT');
+
+  // Reviews: one editable review per reviewer/target pair.
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS reviews (
+      id TEXT PRIMARY KEY,
+      target_user_id TEXT NOT NULL,
+      reviewer_id TEXT NOT NULL,
+      rating INTEGER NOT NULL,
+      comment TEXT,
+      created_at INTEGER,
+      updated_at INTEGER,
+      UNIQUE(target_user_id, reviewer_id)
+    )
+  `);
+
+  // Phone verification codes (profile trust badge) — a dedicated table rather
+  // than reusing password_resets, since this is for an already-logged-in user
+  // verifying their own phone, not an anonymous identifier lookup.
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS phone_verifications (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      code TEXT NOT NULL,
+      expires_at INTEGER,
+      consumed INTEGER DEFAULT 0,
+      created_at INTEGER
     )
   `);
 
@@ -186,7 +285,7 @@ app.post('/api/db-reset', async (req, res) => {
 
 // Offline-First Sync Endpoint
 app.post('/api/sync', async (req, res) => {
-  const { lastSync, changes } = req.body;
+  const { lastSync, changes, ownerId } = req.body;
   const serverTime = Date.now();
   const logs = [];
 
@@ -207,8 +306,8 @@ app.post('/api/sync', async (req, res) => {
           if (clientListing.updated_at > serverListing.updated_at) {
             logs.push(`Listing ID ${clientListing.id} updated: Client changes merged (client: ${clientListing.updated_at} > server: ${serverListing.updated_at})`);
             await db.run(
-              `UPDATE listings SET 
-                farmer_name = ?, crop = ?, quantity = ?, unit = ?, price = ?, location = ?, phone = ?, deleted = ?, updated_at = ?
+              `UPDATE listings SET
+                farmer_name = ?, crop = ?, quantity = ?, unit = ?, price = ?, location = ?, phone = ?, deleted = ?, updated_at = ?, owner_id = ?
                WHERE id = ?`,
               [
                 clientListing.farmer_name,
@@ -220,6 +319,7 @@ app.post('/api/sync', async (req, res) => {
                 clientListing.phone,
                 clientListing.deleted ? 1 : 0,
                 clientListing.updated_at,
+                clientListing.owner_id || null,
                 clientListing.id
               ]
             );
@@ -229,8 +329,8 @@ app.post('/api/sync', async (req, res) => {
         } else {
           logs.push(`Listing ID ${clientListing.id} created: Inserted client-side record`);
           await db.run(
-            `INSERT INTO listings (id, farmer_name, crop, quantity, unit, price, location, phone, deleted, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            `INSERT INTO listings (id, farmer_name, crop, quantity, unit, price, location, phone, deleted, updated_at, owner_id)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
               clientListing.id,
               clientListing.farmer_name,
@@ -241,7 +341,8 @@ app.post('/api/sync', async (req, res) => {
               clientListing.location,
               clientListing.phone,
               clientListing.deleted ? 1 : 0,
-              clientListing.updated_at
+              clientListing.updated_at,
+              clientListing.owner_id || null
             ]
           );
         }
@@ -255,14 +356,15 @@ app.post('/api/sync', async (req, res) => {
         if (!serverMsg) {
           logs.push(`Message ID ${clientMsg.id} synchronized`);
           await db.run(
-            `INSERT INTO messages (id, sender_id, receiver_id, content, timestamp)
-             VALUES (?, ?, ?, ?, ?)`,
+            `INSERT INTO messages (id, sender_id, receiver_id, content, timestamp, owner_id)
+             VALUES (?, ?, ?, ?, ?, ?)`,
             [
               clientMsg.id,
               clientMsg.sender_id,
               clientMsg.receiver_id,
               clientMsg.content,
-              clientMsg.timestamp
+              clientMsg.timestamp,
+              clientMsg.owner_id || null
             ]
           );
         }
@@ -276,7 +378,12 @@ app.post('/api/sync', async (req, res) => {
     // However, to keep it simple, we retrieve all database updates since lastSync.
     // The client will merge them and overwrite matching IDs if client timestamp is older.
     const updatedListings = await db.all('SELECT * FROM listings WHERE updated_at > ?', [lastSync]);
-    const newMessages = await db.all('SELECT * FROM messages WHERE timestamp > ?', [lastSync]);
+    const newMessages = ownerId
+      ? await db.all(
+          'SELECT * FROM messages WHERE timestamp > ? AND (owner_id = ? OR sender_id = ? OR receiver_id = ?)',
+          [lastSync, ownerId, ownerId, ownerId]
+        )
+      : await db.all('SELECT * FROM messages WHERE timestamp > ?', [lastSync]);
 
     res.json({
       serverTime,
