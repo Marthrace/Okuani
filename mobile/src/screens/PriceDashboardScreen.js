@@ -1,7 +1,8 @@
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import Svg, { Circle, Line, Path, Text as SvgText } from 'react-native-svg';
 import { Ionicons } from '@expo/vector-icons';
-import { COLORS } from '../utils/constants';
+import { useTheme } from '../context/ThemeContext';
+import { RADIUS, SHADOW, SPACING } from '../utils/theme';
 
 const FALLBACK_PRICES = [
   { market_name: 'Makola Market', region: 'Greater Accra', crop: 'White Maize', price_per_kg: 8.5 },
@@ -21,6 +22,8 @@ const CHART_PATH = CHART_POINTS.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p
 const CHART_AREA = `${CHART_PATH} L 250 110 L 40 110 Z`;
 
 export default function PriceDashboardScreen({ localDb }) {
+  const { colors } = useTheme();
+  const styles = getStyles(colors);
   const displayPrices = localDb.prices && localDb.prices.length > 0 ? localDb.prices : FALLBACK_PRICES;
 
   const cropGrouped = displayPrices.reduce((acc, curr) => {
@@ -39,26 +42,26 @@ export default function PriceDashboardScreen({ localDb }) {
       <View style={styles.chartCard}>
         <View style={styles.chartHeaderRow}>
           <View style={styles.inlineRow}>
-            <Ionicons name="trending-up-outline" size={12} color={COLORS.primary} />
+            <Ionicons name="trending-up-outline" size={12} color={colors.primary} />
             <Text style={styles.chartTitle}>White Maize Price / Kg (GHS)</Text>
           </View>
           <Text style={styles.chartSubtitle}>Bono → Ash → Northern → GA</Text>
         </View>
 
         <Svg width="100%" height={120} viewBox="0 0 300 120">
-          <Line x1="20" y1="20" x2="290" y2="20" stroke="#f1f5f9" strokeWidth="1" />
-          <Line x1="20" y1="50" x2="290" y2="50" stroke="#f1f5f9" strokeWidth="1" />
-          <Line x1="20" y1="80" x2="290" y2="80" stroke="#f1f5f9" strokeWidth="1" />
-          <Line x1="20" y1="110" x2="290" y2="110" stroke="#e2e8f0" strokeWidth="1" />
+          <Line x1="20" y1="20" x2="290" y2="20" stroke={colors.border} strokeWidth="1" />
+          <Line x1="20" y1="50" x2="290" y2="50" stroke={colors.border} strokeWidth="1" />
+          <Line x1="20" y1="80" x2="290" y2="80" stroke={colors.border} strokeWidth="1" />
+          <Line x1="20" y1="110" x2="290" y2="110" stroke={colors.border} strokeWidth="1" />
 
           <Path d={CHART_AREA} fill="rgba(31, 163, 74, 0.15)" />
-          <Path d={CHART_PATH} fill="none" stroke={COLORS.primary} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
+          <Path d={CHART_PATH} fill="none" stroke={colors.primary} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
 
           {CHART_POINTS.map((p, i) => (
-            <Circle key={i} cx={p.x} cy={p.y} r="4" fill={COLORS.primaryLight} stroke={COLORS.primaryDark} strokeWidth="1.5" />
+            <Circle key={i} cx={p.x} cy={p.y} r="4" fill={colors.primaryLight} stroke={colors.primaryDark} strokeWidth="1.5" />
           ))}
           {CHART_POINTS.map((p, i) => (
-            <SvgText key={i} x={p.x - 8} y={p.y - 8} fontSize="8" fill={COLORS.textMuted} fontWeight="bold">
+            <SvgText key={i} x={p.x - 8} y={p.y - 8} fontSize="8" fill={colors.textMuted} fontWeight="bold">
               {p.label}
             </SvgText>
           ))}
@@ -87,59 +90,60 @@ export default function PriceDashboardScreen({ localDb }) {
   );
 }
 
-const styles = StyleSheet.create({
+const getStyles = (colors) =>
+  StyleSheet.create({
   list: { flex: 1 },
-  content: { padding: 16, paddingBottom: 32, gap: 4 },
+  content: { padding: SPACING.lg, paddingBottom: 32, gap: 4 },
   headerRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 14,
+    marginBottom: SPACING.md + 2,
   },
-  screenTitle: { fontSize: 18, fontWeight: '800', color: COLORS.text },
-  cachedLabel: { fontSize: 10, color: COLORS.textMuted },
+  screenTitle: { fontSize: 19, fontWeight: '800', color: colors.text },
+  cachedLabel: { fontSize: 10, color: colors.textMuted },
   chartCard: {
-    backgroundColor: COLORS.card,
-    borderRadius: 18,
-    padding: 12,
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: COLORS.border,
+    backgroundColor: colors.card,
+    borderRadius: RADIUS.lg,
+    padding: SPACING.md + 2,
+    marginBottom: SPACING.lg,
+    ...SHADOW.card,
   },
   chartHeaderRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 8,
+    marginBottom: SPACING.sm,
   },
   inlineRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  chartTitle: { fontSize: 11, fontWeight: '700', color: COLORS.text },
-  chartSubtitle: { fontSize: 9, color: COLORS.textMuted },
-  sectionTitle: { fontSize: 13, fontWeight: '700', color: COLORS.text, marginBottom: 8 },
-  emptyCard: { backgroundColor: COLORS.card, borderRadius: 14, padding: 16 },
-  emptyText: { color: COLORS.textMuted, fontSize: 12 },
+  chartTitle: { fontSize: 11, fontWeight: '700', color: colors.text },
+  chartSubtitle: { fontSize: 9, color: colors.textMuted },
+  sectionTitle: { fontSize: 14, fontWeight: '800', color: colors.text, marginBottom: SPACING.sm },
+  emptyCard: { backgroundColor: colors.card, borderRadius: RADIUS.md, padding: SPACING.lg },
+  emptyText: { color: colors.textMuted, fontSize: 12 },
   priceCard: {
-    backgroundColor: COLORS.card,
-    borderRadius: 18,
-    padding: 12,
-    marginBottom: 10,
-    borderWidth: 1,
-    borderColor: COLORS.border,
+    backgroundColor: colors.card,
+    borderRadius: RADIUS.lg,
+    padding: SPACING.md + 2,
+    marginBottom: SPACING.md,
+    gap: 6,
+    ...SHADOW.card,
   },
   priceCardTitle: {
     fontSize: 12,
-    fontWeight: '700',
-    color: COLORS.primary,
-    borderBottomWidth: 1,
-    borderBottomColor: COLORS.border,
-    paddingBottom: 4,
-    marginBottom: 6,
+    fontWeight: '800',
+    color: colors.primaryDark,
+    marginBottom: 2,
   },
   priceRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    paddingVertical: 3,
+    alignItems: 'center',
+    backgroundColor: colors.primarySoft,
+    borderRadius: RADIUS.sm,
+    paddingHorizontal: SPACING.sm + 2,
+    paddingVertical: SPACING.sm,
   },
-  priceRowLabel: { fontSize: 12, color: COLORS.textMuted },
-  priceRowValue: { fontSize: 12, fontWeight: '700', color: COLORS.text },
+  priceRowLabel: { fontSize: 12, color: colors.text, fontWeight: '600', flex: 1, marginRight: 8 },
+  priceRowValue: { fontSize: 12, fontWeight: '800', color: colors.primaryDark },
 });

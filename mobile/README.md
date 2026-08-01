@@ -31,6 +31,8 @@ either store.
 mobile/
 ├── App.js                     # Screen router, header, bottom nav, SMS-alert banner
 └── src/
+    ├── context/
+    │   └── ThemeContext.js      # Light/dark palette + useTheme() hook, persisted via AsyncStorage
     ├── hooks/
     │   ├── useNetworkStatus.js  # NetInfo connectivity + manual "simulate offline" demo toggle
     │   └── useOfflineDb.js      # AsyncStorage-backed local DB, sync engine, conflict resolution
@@ -40,15 +42,18 @@ mobile/
     │   ├── BuyerPortalScreen.js    # Search/filter listings, start a chat
     │   ├── PriceDashboardScreen.js # Regional price feeds + SVG trend chart
     │   ├── ChatScreen.js           # Farmer↔buyer messaging
-    │   └── SyncConsoleScreen.js    # Network toggle, force sync, DB reset, sync log — for demos/defense
+    │   └── SettingsScreen.js       # Light/dark theme toggle + sync console (network toggle, force
+    │                               # sync, DB reset, sync log) — for demos/defense
     ├── components/               # Header, BottomNav, ListingCard
-    └── utils/                    # api.js (backend base URL), constants.js
+    └── utils/                    # api.js (backend base URL), constants.js (color palettes, options)
 ```
 
 ## Demonstrating offline-first behaviour
 
-The **Sync** tab has a **Simulate Offline** switch (independent of your actual network) so you can:
+The **Settings** tab (center button in the bottom nav) has a **Simulate Offline** switch (independent
+of your actual network) so you can:
 1. Add a listing or send a message while the switch is on ("offline" mode) — it's queued locally with a **Sync Queue** badge.
 2. Flip the switch back off — sync fires automatically and the badge turns into **Synced**.
 
-This mirrors the `../simulator`'s network-toggle demo but runs on-device.
+This mirrors the `../simulator`'s network-toggle demo but runs on-device. The same Settings screen
+also has an Appearance section for switching the app between light and dark mode.

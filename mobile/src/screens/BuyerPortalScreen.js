@@ -1,13 +1,17 @@
 import { useState } from 'react';
-import { FlatList, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { FlatList, Image, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import ListingCard from '../components/ListingCard';
 import Select from '../components/Select';
-import { COLORS, LOCATIONS } from '../utils/constants';
+import { buildApiUrl } from '../utils/api';
+import { LOCATIONS } from '../utils/constants';
+import { useTheme } from '../context/ThemeContext';
+import { RADIUS, SHADOW, SPACING } from '../utils/theme';
 
 const LOCATION_OPTIONS = [{ label: 'All Regions', value: 'All' }, ...LOCATIONS];
 
-export default function BuyerPortalScreen({ localDb, onSwitchRole, onMessageFarmer }) {
+export default function BuyerPortalScreen({ localDb, onSwitchRole, onMessageFarmer, onViewProfile }) {
+  const { colors } = useTheme();
+  const styles = getStyles(colors);
   const [searchQuery, setSearchQuery] = useState('');
   const [filterLocation, setFilterLocation] = useState('All');
 
@@ -25,17 +29,19 @@ export default function BuyerPortalScreen({ localDb, onSwitchRole, onMessageFarm
       contentContainerStyle={styles.content}
       data={filteredListings}
       keyExtractor={(item) => item.id}
+      numColumns={2}
+      columnWrapperStyle={styles.columnWrapper}
       ListHeaderComponent={
         <>
           <View style={styles.headerRow}>
-            <Text style={styles.screenTitle}>Buyer Portal</Text>
+            <Text style={styles.screenTitle}>Marketplace</Text>
             <Pressable style={styles.outlineBtn} onPress={onSwitchRole}>
-              <Text style={styles.outlineBtnText}>Switch Role</Text>
+              <Text style={styles.outlineBtnText}>Farmer View</Text>
             </Pressable>
           </View>
 
           <View style={styles.searchWrap}>
-            <Ionicons name="search-outline" size={16} color={COLORS.textMuted} style={styles.searchIcon} />
+            <Ionicons name="search-outline" size={16} color={colors.textMuted} style={styles.searchIcon} />
             <TextInput
               style={styles.searchInput}
               placeholder="Search crop or farmer..."
@@ -45,14 +51,19 @@ export default function BuyerPortalScreen({ localDb, onSwitchRole, onMessageFarm
           </View>
 
           <View style={styles.filterRow}>
-            <Ionicons name="filter-outline" size={14} color={COLORS.textMuted} />
-            <Text style={styles.filterLabel}>Location:</Text>
+            <Ionicons name="location-outline" size={14} color={colors.textMuted} />
+            <Text style={styles.filterLabel}>Region:</Text>
             <View style={styles.pickerFlex}>
               <Select selectedValue={filterLocation} onValueChange={setFilterLocation} items={LOCATION_OPTIONS} />
             </View>
           </View>
 
-          <Text style={styles.sectionTitle}>Available Produce ({filteredListings.length})</Text>
+          <View style={styles.sectionHeaderRow}>
+            <Text style={styles.sectionTitle}>Available Produce</Text>
+            <View style={styles.countPill}>
+              <Text style={styles.countPillText}>{filteredListings.length}</Text>
+            </View>
+          </View>
         </>
       }
       ListEmptyComponent={
@@ -61,69 +72,126 @@ export default function BuyerPortalScreen({ localDb, onSwitchRole, onMessageFarm
         </View>
       }
       renderItem={({ item }) => (
-        <ListingCard
-          listing={item}
-          footer={
+        <View style={styles.card}>
+          {item.image_path ? (
+            <Image source={{ uri: buildApiUrl(item.image_path) }} style={styles.cardIcon} resizeMode="cover" />
+          ) : (
+            <View style={styles.cardIcon}>
+              <Ionicons name="leaf-outline" size={26} color={colors.refGreen} />
+            </View>
+          )}
+          <Text style={styles.cardTitle} numberOfLines={1}>{item.crop}</Text>
+          <Text style={styles.cardSubtitle} numberOfLines={1}>{item.location}</Text>
+          <Text style={styles.cardPrice}>GHS {item.price}<Text style={styles.cardUnit}> /{item.unit}</Text></Text>
+
+          <View style={styles.cardActions}>
+            {item.owner_id && onViewProfile && (
+              <Pressable style={styles.profileBtn} onPress={() => onViewProfile(item.owner_id)}>
+                <Ionicons name="person-circle-outline" size={16} color={colors.refGreen} />
+              </Pressable>
+            )}
             <Pressable style={styles.chatBtn} onPress={() => onMessageFarmer(item)}>
               <Ionicons name="send" size={12} color="#fff" />
               <Text style={styles.chatBtnText}>Chat</Text>
             </Pressable>
-          }
-        />
+          </View>
+        </View>
       )}
     />
   );
 }
 
-const styles = StyleSheet.create({
-  list: { flex: 1 },
-  content: { padding: 16, paddingBottom: 32 },
+const getStyles = (colors) =>
+  StyleSheet.create({
+  list: { flex: 1, backgroundColor: colors.bg },
+  content: { padding: SPACING.lg, paddingBottom: 32 },
   headerRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 14,
+    marginBottom: SPACING.md + 2,
   },
-  screenTitle: { fontSize: 18, fontWeight: '800', color: COLORS.text },
+  screenTitle: { fontSize: 19, fontWeight: '800', color: colors.text },
   outlineBtn: {
     borderWidth: 1,
-    borderColor: COLORS.border,
-    borderRadius: 999,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
+    borderColor: colors.refGreen,
+    borderRadius: RADIUS.pill,
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.xs + 2,
   },
-  outlineBtnText: { fontSize: 11, color: COLORS.textMuted, fontWeight: '600' },
-  searchWrap: { position: 'relative', justifyContent: 'center', marginBottom: 8 },
-  searchIcon: { position: 'absolute', left: 10, zIndex: 1 },
+  outlineBtnText: { fontSize: 11, color: colors.refGreen, fontWeight: '700' },
+  searchWrap: { position: 'relative', justifyContent: 'center', marginBottom: SPACING.sm },
+  searchIcon: { position: 'absolute', left: SPACING.md - 2, zIndex: 1 },
   searchInput: {
     borderWidth: 1,
-    borderColor: COLORS.border,
-    borderRadius: 999,
-    paddingVertical: 9,
-    paddingLeft: 32,
-    paddingRight: 10,
+    borderColor: colors.border,
+    borderRadius: RADIUS.pill,
+    paddingVertical: SPACING.sm + 1,
+    paddingLeft: 34,
+    paddingRight: SPACING.md,
     fontSize: 13,
-    backgroundColor: COLORS.card,
+    backgroundColor: colors.card,
   },
-  filterRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 14 },
-  filterLabel: { fontSize: 12, color: COLORS.textMuted },
+  filterRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: SPACING.md + 2 },
+  filterLabel: { fontSize: 12, color: colors.textMuted },
   pickerFlex: { flex: 1 },
-  sectionTitle: { fontSize: 13, fontWeight: '700', color: COLORS.text, marginBottom: 8 },
+  sectionHeaderRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: SPACING.sm },
+  sectionTitle: { fontSize: 14, fontWeight: '800', color: colors.text },
+  countPill: {
+    backgroundColor: colors.refSage,
+    borderRadius: RADIUS.pill,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+  },
+  countPillText: { fontSize: 11, fontWeight: '800', color: colors.refGreen },
   emptyCard: {
-    backgroundColor: COLORS.card,
-    borderRadius: 20,
-    padding: 24,
+    backgroundColor: colors.card,
+    borderRadius: RADIUS.lg,
+    padding: SPACING.xl + 4,
     alignItems: 'center',
   },
-  emptyText: { color: COLORS.textMuted, fontSize: 12, textAlign: 'center' },
+  emptyText: { color: colors.textMuted, fontSize: 12, textAlign: 'center' },
+  columnWrapper: { justifyContent: 'space-between' },
+  card: {
+    width: '48%',
+    backgroundColor: colors.card,
+    borderRadius: RADIUS.lg,
+    padding: SPACING.md,
+    marginBottom: SPACING.md,
+    ...SHADOW.card,
+  },
+  cardIcon: {
+    width: '100%',
+    height: 64,
+    borderRadius: RADIUS.md,
+    backgroundColor: colors.refSage,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: SPACING.sm,
+  },
+  cardTitle: { fontSize: 13, fontWeight: '800', color: colors.text },
+  cardSubtitle: { fontSize: 10, color: colors.textMuted, marginTop: 1, marginBottom: 4 },
+  cardPrice: { fontSize: 13, fontWeight: '800', color: colors.refGreen },
+  cardUnit: { fontSize: 10, fontWeight: '600', color: colors.textMuted },
+  cardActions: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: SPACING.sm },
+  profileBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: RADIUS.pill,
+    borderWidth: 1,
+    borderColor: colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   chatBtn: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
     gap: 5,
-    backgroundColor: COLORS.primary,
-    borderRadius: 999,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
+    backgroundColor: colors.refGreen,
+    borderRadius: RADIUS.pill,
+    paddingVertical: SPACING.sm - 1,
   },
   chatBtnText: { color: '#fff', fontWeight: '700', fontSize: 11 },
 });

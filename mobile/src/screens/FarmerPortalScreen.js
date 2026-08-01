@@ -1,20 +1,56 @@
-import { useState } from 'react';
-import { Alert, FlatList, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useEffect, useRef, useState } from 'react';
+import { ActivityIndicator, Alert, FlatList, Image, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import ListingCard from '../components/ListingCard';
 import Select from '../components/Select';
-import { COLORS, CROPS, LOCATIONS, UNITS } from '../utils/constants';
+import { useProfile } from '../hooks/useProfile';
+import { buildApiUrl } from '../utils/api';
+import { pickImageAsync } from '../utils/imagePicker';
+import { CROPS, LOCATIONS, UNITS } from '../utils/constants';
+import { useTheme } from '../context/ThemeContext';
+import { RADIUS, SHADOW, SPACING } from '../utils/theme';
 
-export default function FarmerPortalScreen({ localDb, setLocalDb, networkStatus, addLog, syncData, onSwitchRole }) {
-  const [farmerName] = useState('Kwame Boateng');
+export default function FarmerPortalScreen({
+  localDb,
+  setLocalDb,
+  networkStatus,
+  hasPendingChanges,
+  addLog,
+  syncData,
+  onSwitchRole,
+  ownerId,
+  defaultName,
+  auth,
+  onViewProfile,
+  onIdentityPress,
+  unreadCount,
+  onNotificationsPress,
+}) {
+  const { colors } = useTheme();
+  const styles = getStyles(colors);
+  const [farmerName, setFarmerName] = useState(defaultName || 'Kwame Boateng');
   const [crop, setCrop] = useState(CROPS[0]);
   const [location, setLocation] = useState(LOCATIONS[0]);
   const [qty, setQty] = useState('');
   const [unit, setUnit] = useState(UNITS[0]);
   const [price, setPrice] = useState('');
-  const [phone] = useState('+233244123456');
+  const [phone, setPhone] = useState('+233244123456');
+  const [photoDataUri, setPhotoDataUri] = useState(null);
+  const [pickingPhoto, setPickingPhoto] = useState(false);
+  const listRef = useRef(null);
 
-  const myListings = localDb.listings.filter((l) => !l.deleted && l.farmer_name === farmerName);
+  const myListings = localDb.listings.filter((l) => !l.deleted && l.owner_id === ownerId);
+
+  const profileApi = useProfile(auth || {});
+  const [contacts, setContacts] = useState([]);
+
+  useEffect(() => {
+    if (!auth?.token) return;
+    profileApi
+      .getContacts()
+      .then(setContacts)
+      .catch(() => setContacts([]));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [auth?.token]);
 
   const handleAddListing = () => {
     if (!crop || !qty || !price || !location) {
@@ -34,15 +70,40 @@ export default function FarmerPortalScreen({ localDb, setLocalDb, networkStatus,
       deleted: 0,
       updated_at: Date.now(),
       synced: false,
+      owner_id: ownerId,
+      image_base64: photoDataUri || null,
     };
 
     setLocalDb((prev) => ({ ...prev, listings: [newListing, ...prev.listings] }));
     setQty('');
     setPrice('');
+    setPhotoDataUri(null);
     addLog(`Added ${crop} (${qty} ${unit}) to offline cache. Waiting for network to sync.`, 'info');
 
     if (networkStatus === 'online') {
       setTimeout(syncData, 500);
+    }
+  };
+
+  const handlePickPhoto = async (source) => {
+    setPickingPhoto(true);
+    try {
+      const result = await pickImageAsync({ source, aspect: [4, 3], quality: 0.5 });
+      if (!result) return;
+      if (result.error === 'permission-denied') {
+        Alert.alert(
+          'Permission needed',
+          source === 'camera' ? 'Allow camera access to photograph your produce.' : 'Allow photo library access to choose a product photo.'
+        );
+        return;
+      }
+      if (result.error === 'too-large') {
+        Alert.alert('Image too large', 'Please choose a photo under 5MB.');
+        return;
+      }
+      setPhotoDataUri(result.dataUri);
+    } finally {
+      setPickingPhoto(false);
     }
   };
 
@@ -61,21 +122,78 @@ export default function FarmerPortalScreen({ localDb, setLocalDb, networkStatus,
 
   return (
     <FlatList
+      ref={listRef}
       style={styles.list}
       contentContainerStyle={styles.content}
       data={myListings}
       keyExtractor={(item) => item.id}
       ListHeaderComponent={
         <>
-          <View style={styles.headerRow}>
-            <Text style={styles.screenTitle}>Farmer Portal</Text>
-            <Pressable style={styles.outlineBtn} onPress={onSwitchRole}>
-              <Text style={styles.outlineBtnText}>Switch Role</Text>
-            </Pressable>
+          <View style={styles.hero}>
+            <View style={styles.heroBrandRow}>
+              <Text style={styles.heroBrand}>OKUANI</Text>
+              <View style={styles.heroIcons}>
+                <Pressable style={styles.heroIconChip} onPress={onIdentityPress} hitSlop={6}>
+                  <Ionicons name={auth?.isGuest ? 'person-outline' : 'person'} size={14} color="#fff" />
+                </Pressable>
+                {onNotificationsPress && (
+                  <Pressable style={styles.heroIconChip} onPress={onNotificationsPress} hitSlop={6}>
+                    <Ionicons name={unreadCount > 0 ? 'notifications' : 'notifications-outline'} size={14} color="#fff" />
+                    {unreadCount > 0 && (
+                      <View style={styles.heroBadge}>
+                        <Text style={styles.heroBadgeText}>{unreadCount}</Text>
+                      </View>
+                    )}
+                  </Pressable>
+                )}
+                <View style={styles.heroIconChip}>
+                  <Ionicons
+                    name={networkStatus === 'online' ? 'wifi' : 'cloud-offline-outline'}
+                    size={14}
+                    color={networkStatus === 'online' ? '#fff' : '#FCA5A5'}
+                  />
+                </View>
+                <View style={styles.heroIconChip}>
+                  <Ionicons name={hasPendingChanges ? 'sync-outline' : 'checkmark-done'} size={14} color="#fff" />
+                </View>
+              </View>
+            </View>
+
+            <View style={styles.heroTopRow}>
+              <View>
+                <Text style={styles.heroGreeting}>Hello, {farmerName.split(' ')[0]}</Text>
+                <Text style={styles.heroSubtitle}>Manage your produce listings</Text>
+              </View>
+            </View>
+
+            <View style={styles.heroCtaRow}>
+              <Pressable
+                style={styles.heroCtaPrimary}
+                onPress={() => listRef.current?.scrollToOffset({ offset: 0, animated: true })}
+              >
+                <Text style={styles.heroCtaPrimaryText}>Add Listing</Text>
+              </Pressable>
+              <Pressable style={styles.heroCtaSecondary} onPress={onSwitchRole}>
+                <Text style={styles.heroCtaSecondaryText}>Buyer View</Text>
+                <Ionicons name="cart-outline" size={14} color="#fff" />
+              </Pressable>
+            </View>
           </View>
 
           <View style={styles.formCard}>
             <Text style={styles.formTitle}>List New Produce</Text>
+
+            <Text style={styles.label}>Farmer Name</Text>
+            <TextInput style={styles.input} placeholder="Your name" value={farmerName} onChangeText={setFarmerName} />
+
+            <Text style={styles.label}>Phone</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="+233244123456"
+              keyboardType="phone-pad"
+              value={phone}
+              onChangeText={setPhone}
+            />
 
             <Text style={styles.label}>Crop Type</Text>
             <Select selectedValue={crop} onValueChange={setCrop} items={CROPS} />
@@ -109,13 +227,66 @@ export default function FarmerPortalScreen({ localDb, setLocalDb, networkStatus,
               onChangeText={setPrice}
             />
 
+            <Text style={styles.label}>Product Photo (optional)</Text>
+            {photoDataUri ? (
+              <View style={styles.photoPreviewWrap}>
+                <Image source={{ uri: photoDataUri }} style={styles.photoPreview} />
+                <Pressable style={styles.photoRemoveBtn} onPress={() => setPhotoDataUri(null)} hitSlop={8}>
+                  <Ionicons name="close" size={14} color="#fff" />
+                </Pressable>
+              </View>
+            ) : (
+              <View style={styles.photoBtnRow}>
+                <Pressable style={styles.photoBtn} onPress={() => handlePickPhoto('camera')} disabled={pickingPhoto}>
+                  {pickingPhoto ? (
+                    <ActivityIndicator size="small" color={colors.refGreen} />
+                  ) : (
+                    <>
+                      <Ionicons name="camera-outline" size={16} color={colors.refGreen} />
+                      <Text style={styles.photoBtnText}>Take Photo</Text>
+                    </>
+                  )}
+                </Pressable>
+                <Pressable style={styles.photoBtn} onPress={() => handlePickPhoto('library')} disabled={pickingPhoto}>
+                  <Ionicons name="image-outline" size={16} color={colors.refGreen} />
+                  <Text style={styles.photoBtnText}>Upload Photo</Text>
+                </Pressable>
+              </View>
+            )}
+
             <Pressable style={styles.primaryBtn} onPress={handleAddListing}>
               <Ionicons name="add" size={16} color="#fff" />
               <Text style={styles.primaryBtnText}>Add Listing</Text>
             </Pressable>
           </View>
 
-          <Text style={styles.sectionTitle}>My Crop Listings ({myListings.length})</Text>
+          {contacts.length > 0 && (
+            <View style={styles.contactsSection}>
+              <Text style={styles.sectionTitle}>Buyers who contacted you</Text>
+              <View style={styles.contactsList}>
+                {contacts.map((c) => (
+                  <Pressable key={c.id} style={styles.contactRow} onPress={() => onViewProfile?.(c.id)}>
+                    {c.avatarUrl ? (
+                      <Image source={{ uri: buildApiUrl(c.avatarUrl) }} style={styles.contactAvatar} />
+                    ) : (
+                      <View style={[styles.contactAvatar, styles.contactAvatarPlaceholder]}>
+                        <Ionicons name="person" size={16} color={colors.refGreen} />
+                      </View>
+                    )}
+                    <Text style={styles.contactName}>{c.name}</Text>
+                    <Ionicons name="chevron-forward" size={14} color={colors.textMuted} />
+                  </Pressable>
+                ))}
+              </View>
+            </View>
+          )}
+
+          <View style={styles.sectionHeaderRow}>
+            <Text style={styles.sectionTitle}>My Crop Listings</Text>
+            <View style={styles.countPill}>
+              <Text style={styles.countPillText}>{myListings.length}</Text>
+            </View>
+          </View>
         </>
       }
       ListEmptyComponent={
@@ -124,98 +295,254 @@ export default function FarmerPortalScreen({ localDb, setLocalDb, networkStatus,
         </View>
       }
       renderItem={({ item }) => (
-        <ListingCard
-          listing={item}
-          footer={
-            <View style={styles.footerRow}>
-              {item.synced ? (
-                <View style={styles.statusRow}>
-                  <Ionicons name="checkmark-done" size={12} color={COLORS.success} />
-                  <Text style={styles.syncedText}>Synced</Text>
-                </View>
-              ) : (
-                <View style={styles.statusRow}>
-                  <Ionicons name="cloud-offline-outline" size={12} color={COLORS.warning} />
-                  <Text style={styles.pendingText}>Sync Queue</Text>
-                </View>
-              )}
-              <Pressable onPress={() => handleDeleteListing(item.id)} hitSlop={8}>
-                <Ionicons name="trash-outline" size={16} color={COLORS.danger} />
-              </Pressable>
+        <View style={styles.row}>
+          {item.image_path || item.image_base64 ? (
+            <Image
+              source={{ uri: item.image_path ? buildApiUrl(item.image_path) : item.image_base64 }}
+              style={styles.rowIcon}
+              resizeMode="cover"
+            />
+          ) : (
+            <View style={styles.rowIcon}>
+              <Ionicons name="leaf-outline" size={20} color={colors.refGreen} />
             </View>
-          }
-        />
+          )}
+          <View style={styles.rowBody}>
+            <Text style={styles.rowTitle}>{item.crop}</Text>
+            <Text style={styles.rowSubtitle}>
+              {item.quantity} {item.unit} · {item.location}
+            </Text>
+          </View>
+          <View style={styles.rowRight}>
+            <Text style={styles.rowPrice}>GHS {item.price}</Text>
+            {item.synced ? (
+              <View style={[styles.statusPill, styles.statusPillSynced]}>
+                <Ionicons name="checkmark" size={10} color="#fff" />
+                <Text style={styles.statusPillText}>Synced</Text>
+              </View>
+            ) : (
+              <View style={[styles.statusPill, styles.statusPillPending]}>
+                <Ionicons name="time-outline" size={10} color="#fff" />
+                <Text style={styles.statusPillText}>Pending</Text>
+              </View>
+            )}
+            <Pressable onPress={() => handleDeleteListing(item.id)} hitSlop={8} style={styles.rowDelete}>
+              <Ionicons name="trash-outline" size={14} color={colors.danger} />
+            </Pressable>
+          </View>
+        </View>
       )}
     />
   );
 }
 
-const styles = StyleSheet.create({
-  list: { flex: 1 },
-  content: { padding: 16, paddingBottom: 32 },
-  headerRow: {
+const getStyles = (colors) =>
+  StyleSheet.create({
+  list: { flex: 1, backgroundColor: colors.bg },
+  content: { paddingBottom: 32 },
+  hero: {
+    backgroundColor: colors.refGreen,
+    paddingHorizontal: SPACING.xl,
+    paddingTop: SPACING.xl,
+    paddingBottom: SPACING.xl,
+    borderBottomLeftRadius: RADIUS.xl,
+    borderBottomRightRadius: RADIUS.xl,
+    marginBottom: SPACING.lg,
+    gap: SPACING.lg,
+  },
+  heroBrandRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 14,
+    marginBottom: SPACING.md,
   },
-  screenTitle: { fontSize: 18, fontWeight: '800', color: COLORS.text },
-  outlineBtn: {
+  heroBrand: { fontSize: 12, fontWeight: '800', color: 'rgba(255,255,255,0.85)', letterSpacing: 1.5 },
+  heroIcons: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm },
+  heroIconChip: {
+    width: 26,
+    height: 26,
+    borderRadius: RADIUS.pill,
+    backgroundColor: 'rgba(255,255,255,0.14)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  heroBadge: {
+    position: 'absolute',
+    top: -3,
+    right: -3,
+    minWidth: 15,
+    height: 15,
+    borderRadius: 8,
+    paddingHorizontal: 3,
+    backgroundColor: colors.danger,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  heroBadgeText: { color: '#fff', fontSize: 8, fontWeight: '800' },
+  heroTopRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
+  heroGreeting: { fontSize: 20, fontWeight: '800', color: '#fff' },
+  heroSubtitle: { fontSize: 12, color: '#CFE3D6', marginTop: 2 },
+  heroCtaRow: { flexDirection: 'row', gap: 10 },
+  heroCtaPrimary: {
+    flex: 1,
+    backgroundColor: '#fff',
+    borderRadius: RADIUS.pill,
+    paddingVertical: SPACING.sm + 4,
+    alignItems: 'center',
+  },
+  heroCtaPrimaryText: { color: colors.refGreen, fontWeight: '800', fontSize: 13 },
+  heroCtaSecondary: {
+    flex: 1,
+    flexDirection: 'row',
+    gap: 6,
+    justifyContent: 'center',
     borderWidth: 1,
-    borderColor: COLORS.border,
-    borderRadius: 999,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
+    borderColor: 'rgba(255,255,255,0.5)',
+    borderRadius: RADIUS.pill,
+    paddingVertical: SPACING.sm + 4,
+    alignItems: 'center',
   },
-  outlineBtnText: { fontSize: 11, color: COLORS.textMuted, fontWeight: '600' },
+  heroCtaSecondaryText: { color: '#fff', fontWeight: '800', fontSize: 13 },
   formCard: {
-    backgroundColor: COLORS.card,
-    borderRadius: 20,
-    padding: 14,
-    marginBottom: 16,
+    backgroundColor: colors.card,
+    borderRadius: RADIUS.lg,
+    padding: SPACING.lg,
+    marginHorizontal: SPACING.lg,
+    marginBottom: SPACING.lg,
     gap: 4,
-    borderWidth: 1,
-    borderColor: COLORS.border,
+    ...SHADOW.card,
   },
   formTitle: {
-    fontWeight: '700',
-    fontSize: 13,
-    marginBottom: 8,
-    color: COLORS.text,
+    fontWeight: '800',
+    fontSize: 14,
+    marginBottom: SPACING.sm,
+    color: colors.text,
   },
-  label: { fontSize: 11, color: COLORS.textMuted, marginTop: 8, marginBottom: 3, fontWeight: '600' },
+  label: { fontSize: 11, color: colors.textMuted, marginTop: SPACING.sm, marginBottom: 4, fontWeight: '600' },
   input: {
     borderWidth: 1,
-    borderColor: COLORS.border,
-    borderRadius: 14,
-    paddingHorizontal: 12,
-    paddingVertical: 9,
+    borderColor: colors.border,
+    borderRadius: RADIUS.md,
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.sm + 1,
     fontSize: 13,
-    color: COLORS.text,
+    color: colors.text,
   },
   rowGrid: { flexDirection: 'row', gap: 10 },
   flexItem: { flex: 1 },
+  photoBtnRow: { flexDirection: 'row', gap: 10, marginTop: 2 },
+  photoBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: RADIUS.md,
+    paddingVertical: SPACING.sm + 2,
+  },
+  photoBtnText: { fontSize: 12, fontWeight: '700', color: colors.refGreen },
+  photoPreviewWrap: { marginTop: 2 },
+  photoPreview: { width: '100%', height: 140, borderRadius: RADIUS.md },
+  photoRemoveBtn: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   primaryBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
-    backgroundColor: COLORS.primary,
-    borderRadius: 999,
-    paddingVertical: 12,
-    marginTop: 12,
+    backgroundColor: colors.refGreen,
+    borderRadius: RADIUS.pill,
+    paddingVertical: SPACING.md,
+    marginTop: SPACING.md,
   },
   primaryBtnText: { color: '#fff', fontWeight: '700', fontSize: 13 },
-  sectionTitle: { fontSize: 13, fontWeight: '700', color: COLORS.text, marginBottom: 8 },
-  emptyCard: {
-    backgroundColor: COLORS.card,
-    borderRadius: 20,
-    padding: 24,
+  sectionHeaderRow: {
+    flexDirection: 'row',
     alignItems: 'center',
+    gap: 8,
+    marginHorizontal: SPACING.lg,
+    marginBottom: SPACING.sm,
   },
-  emptyText: { color: COLORS.textMuted, fontSize: 12, textAlign: 'center' },
-  footerRow: { alignItems: 'flex-end', gap: 6 },
-  statusRow: { flexDirection: 'row', alignItems: 'center', gap: 3 },
-  syncedText: { fontSize: 10, color: COLORS.success, fontWeight: '700' },
-  pendingText: { fontSize: 10, color: COLORS.warning, fontWeight: '700' },
+  sectionTitle: { fontSize: 14, fontWeight: '800', color: colors.text },
+  countPill: {
+    backgroundColor: colors.refSage,
+    borderRadius: RADIUS.pill,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+  },
+  countPillText: { fontSize: 11, fontWeight: '800', color: colors.refGreen },
+  contactsSection: { marginHorizontal: SPACING.lg, marginBottom: SPACING.lg },
+  contactsList: {
+    backgroundColor: colors.card,
+    borderRadius: RADIUS.lg,
+    overflow: 'hidden',
+    ...SHADOW.card,
+  },
+  contactRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.sm + 2,
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.sm + 2,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  contactAvatar: { width: 34, height: 34, borderRadius: 17 },
+  contactAvatarPlaceholder: { backgroundColor: colors.refSage, alignItems: 'center', justifyContent: 'center' },
+  contactName: { flex: 1, fontSize: 13, color: colors.text, fontWeight: '700' },
+  emptyCard: {
+    backgroundColor: colors.card,
+    borderRadius: RADIUS.lg,
+    padding: SPACING.xl + 4,
+    alignItems: 'center',
+    marginHorizontal: SPACING.lg,
+  },
+  emptyText: { color: colors.textMuted, fontSize: 12, textAlign: 'center' },
+  row: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.sm + 2,
+    backgroundColor: colors.card,
+    borderRadius: RADIUS.lg,
+    padding: SPACING.md,
+    marginHorizontal: SPACING.lg,
+    marginBottom: SPACING.sm + 2,
+    ...SHADOW.card,
+  },
+  rowIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: RADIUS.md,
+    backgroundColor: colors.refSage,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  rowBody: { flex: 1, gap: 2 },
+  rowTitle: { fontSize: 14, fontWeight: '800', color: colors.text },
+  rowSubtitle: { fontSize: 11, color: colors.textMuted },
+  rowRight: { alignItems: 'flex-end', gap: 4 },
+  rowPrice: { fontSize: 13, fontWeight: '800', color: colors.refGreen },
+  statusPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    borderRadius: RADIUS.pill,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+  },
+  statusPillSynced: { backgroundColor: colors.success },
+  statusPillPending: { backgroundColor: colors.warning },
+  statusPillText: { fontSize: 9, fontWeight: '800', color: '#fff' },
+  rowDelete: { marginTop: 2 },
 });

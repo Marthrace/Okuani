@@ -1,7 +1,8 @@
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
-import { COLORS } from '../utils/constants';
+import { useTheme } from '../context/ThemeContext';
+import { RADIUS, SHADOW, SPACING } from '../utils/theme';
 
 const FALLBACK_STATS = { avg: 7.33, markets: 4, crops: 5, highest: 8.5, bars: [6.2, 7.8, 6.8, 8.5, 7.2, 6.9] };
 
@@ -21,24 +22,28 @@ function usePriceStats(prices) {
   };
 }
 
-export default function WelcomeScreen({ onSelectRole, prices }) {
+export default function WelcomeScreen({ onContinue, prices }) {
+  const { colors } = useTheme();
+  const styles = getStyles(colors);
   const stats = usePriceStats(prices);
   const maxBar = Math.max(...stats.bars, 1);
 
   return (
     <View style={styles.root}>
       <LinearGradient
-        colors={[COLORS.forestDark, COLORS.forestDarker]}
+        colors={[colors.forestDark, colors.forestDarker]}
         start={{ x: 0.1, y: 0 }}
         end={{ x: 0.9, y: 1 }}
         style={StyleSheet.absoluteFillObject}
       />
       <ScrollView style={styles.scroll} contentContainerStyle={styles.container} bounces={false}>
       <View style={styles.logoRow}>
-        <View style={styles.logoBadge}>
-          <Ionicons name="leaf" size={20} color={COLORS.forestDark} />
+        <View style={styles.logoGroup}>
+          <View style={styles.logoBadge}>
+            <Ionicons name="leaf" size={20} color={colors.forestDark} />
+          </View>
+          <Text style={styles.logoText}>OKUANI</Text>
         </View>
-        <Text style={styles.logoText}>OKUANI</Text>
       </View>
 
       <View style={styles.badge}>
@@ -58,7 +63,7 @@ export default function WelcomeScreen({ onSelectRole, prices }) {
       <View style={styles.pulseCard}>
         <View style={styles.pulseHeaderRow}>
           <View style={styles.inlineRow}>
-            <Ionicons name="location" size={13} color={COLORS.primary} />
+            <Ionicons name="location" size={13} color={colors.primary} />
             <Text style={styles.pulseTitle}>Regional Market Pulse</Text>
           </View>
           <Text style={styles.pulseTag}>{prices?.length ? 'Live' : 'Cached'}</Text>
@@ -94,27 +99,23 @@ export default function WelcomeScreen({ onSelectRole, prices }) {
       </View>
 
       <View style={styles.ctaRow}>
-        <Pressable style={styles.ctaPrimary} onPress={() => onSelectRole('farmer')}>
-          <Text style={styles.ctaPrimaryText}>Farmer Portal</Text>
-          <Ionicons name="arrow-forward" size={16} color={COLORS.forestDark} />
-        </Pressable>
-        <Pressable style={styles.ctaSecondary} onPress={() => onSelectRole('buyer')}>
-          <Text style={styles.ctaSecondaryText}>Buyer Marketplace</Text>
-          <Ionicons name="arrow-forward" size={16} color="#fff" />
+        <Pressable style={styles.ctaPrimary} onPress={onContinue}>
+          <Text style={styles.ctaPrimaryText}>Continue</Text>
+          <Ionicons name="arrow-forward" size={16} color={colors.forestDark} />
         </Pressable>
       </View>
 
       <View style={styles.roleCards}>
         <View style={styles.roleCard}>
           <View style={styles.roleIcon}>
-            <Ionicons name="person-outline" size={20} color={COLORS.primary} />
+            <Ionicons name="person-outline" size={20} color={colors.primary} />
           </View>
           <Text style={styles.roleCardTitle}>List produce</Text>
           <Text style={styles.roleCardDesc}>Add crops & manage listings, even offline</Text>
         </View>
         <View style={styles.roleCard}>
           <View style={styles.roleIcon}>
-            <Ionicons name="trending-up-outline" size={20} color={COLORS.primary} />
+            <Ionicons name="trending-up-outline" size={20} color={colors.primary} />
           </View>
           <Text style={styles.roleCardTitle}>Track prices</Text>
           <Text style={styles.roleCardDesc}>Compare regional market rates</Text>
@@ -137,8 +138,9 @@ export default function WelcomeScreen({ onSelectRole, prices }) {
   );
 }
 
-const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: COLORS.forestDark },
+const getStyles = (colors) =>
+  StyleSheet.create({
+  root: { flex: 1, backgroundColor: colors.forestDark },
   scroll: { flex: 1 },
   container: {
     flexGrow: 1,
@@ -146,7 +148,12 @@ const styles = StyleSheet.create({
     paddingTop: 24,
     paddingBottom: 28,
   },
-  logoRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 22 },
+  logoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 22,
+  },
+  logoGroup: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   logoBadge: {
     width: 32,
     height: 32,
@@ -158,46 +165,47 @@ const styles = StyleSheet.create({
   logoText: { color: '#fff', fontWeight: '800', fontSize: 15, letterSpacing: 1 },
   badge: {
     alignSelf: 'flex-start',
-    backgroundColor: COLORS.accent,
+    backgroundColor: colors.accent,
     borderRadius: 999,
     paddingHorizontal: 12,
     paddingVertical: 6,
     marginBottom: 16,
   },
-  badgeText: { fontSize: 10, fontWeight: '800', color: COLORS.forestDark, letterSpacing: 0.5 },
+  badgeText: { fontSize: 10, fontWeight: '800', color: colors.forestDark, letterSpacing: 0.5 },
   title: { fontSize: 30, fontWeight: '800', color: '#fff', lineHeight: 36, marginBottom: 12 },
-  titleHighlight: { color: COLORS.accent },
+  titleHighlight: { color: colors.accent },
   subtitle: { fontSize: 13, color: '#CFE3D6', lineHeight: 19, marginBottom: 18 },
   pulseCard: {
     backgroundColor: '#fff',
-    borderRadius: 20,
-    padding: 16,
-    marginBottom: 20,
+    borderRadius: RADIUS.lg,
+    padding: SPACING.lg,
+    marginBottom: SPACING.xl,
     gap: 10,
+    ...SHADOW.raised,
   },
   pulseHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   inlineRow: { flexDirection: 'row', alignItems: 'center', gap: 5 },
-  pulseTitle: { fontSize: 11, fontWeight: '700', color: COLORS.text },
+  pulseTitle: { fontSize: 11, fontWeight: '700', color: colors.text },
   pulseTag: {
     fontSize: 9,
     fontWeight: '800',
-    color: COLORS.primary,
-    backgroundColor: COLORS.primarySoft,
+    color: colors.primary,
+    backgroundColor: colors.primarySoft,
     paddingHorizontal: 8,
     paddingVertical: 3,
     borderRadius: 999,
     overflow: 'hidden',
   },
   pulseHeroRow: { flexDirection: 'row', alignItems: 'baseline', gap: 6 },
-  pulseBig: { fontSize: 28, fontWeight: '800', color: COLORS.text },
-  pulseBigUnit: { fontSize: 12, color: COLORS.textMuted, fontWeight: '600' },
+  pulseBig: { fontSize: 28, fontWeight: '800', color: colors.text },
+  pulseBigUnit: { fontSize: 12, color: colors.textMuted, fontWeight: '600' },
   statGrid: { flexDirection: 'row', gap: 8 },
-  statCell: { flex: 1, backgroundColor: COLORS.bg, borderRadius: 12, paddingVertical: 8, alignItems: 'center' },
-  statCellLabel: { fontSize: 9, color: COLORS.textMuted, fontWeight: '600' },
-  statCellValue: { fontSize: 14, fontWeight: '800', color: COLORS.text, marginTop: 2 },
+  statCell: { flex: 1, backgroundColor: colors.bg, borderRadius: 12, paddingVertical: 8, alignItems: 'center' },
+  statCellLabel: { fontSize: 9, color: colors.textMuted, fontWeight: '600' },
+  statCellValue: { fontSize: 14, fontWeight: '800', color: colors.text, marginTop: 2 },
   barRow: { flexDirection: 'row', alignItems: 'flex-end', gap: 6, height: 36, marginTop: 2 },
   barTrack: { flex: 1, height: '100%', justifyContent: 'flex-end' },
-  barFill: { width: '100%', backgroundColor: COLORS.primary, borderRadius: 4, minHeight: 6 },
+  barFill: { width: '100%', backgroundColor: colors.primary, borderRadius: 4, minHeight: 6 },
   ctaRow: { gap: 10, marginBottom: 20 },
   ctaPrimary: {
     flexDirection: 'row',
@@ -208,38 +216,27 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     paddingVertical: 14,
   },
-  ctaPrimaryText: { color: COLORS.forestDark, fontWeight: '800', fontSize: 14 },
-  ctaSecondary: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    backgroundColor: 'rgba(255,255,255,0.12)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.3)',
-    borderRadius: 999,
-    paddingVertical: 14,
-  },
-  ctaSecondaryText: { color: '#fff', fontWeight: '800', fontSize: 14 },
+  ctaPrimaryText: { color: colors.forestDark, fontWeight: '800', fontSize: 14 },
   roleCards: { flexDirection: 'row', gap: 12, marginBottom: 22 },
   roleCard: {
     flex: 1,
     backgroundColor: '#fff',
-    borderRadius: 18,
-    padding: 14,
+    borderRadius: RADIUS.lg,
+    padding: SPACING.md + 2,
     gap: 4,
+    ...SHADOW.card,
   },
   roleIcon: {
     width: 34,
     height: 34,
     borderRadius: 12,
-    backgroundColor: COLORS.primarySoft,
+    backgroundColor: colors.primarySoft,
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 6,
   },
-  roleCardTitle: { fontWeight: '700', fontSize: 13, color: COLORS.text },
-  roleCardDesc: { fontSize: 11, color: COLORS.textMuted, lineHeight: 15 },
+  roleCardTitle: { fontWeight: '700', fontSize: 13, color: colors.text },
+  roleCardDesc: { fontSize: 11, color: colors.textMuted, lineHeight: 15 },
   footerRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 'auto' },
   avatarStack: { flexDirection: 'row', alignItems: 'center' },
   avatar: {
@@ -248,8 +245,8 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     backgroundColor: '#5B8F72',
     borderWidth: 2,
-    borderColor: COLORS.forestDark,
+    borderColor: colors.forestDark,
   },
   footerText: { color: '#CFE3D6', fontSize: 12 },
-  footerNum: { color: COLORS.accent, fontWeight: '800' },
+  footerNum: { color: colors.accent, fontWeight: '800' },
 });

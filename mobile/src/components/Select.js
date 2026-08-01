@@ -1,11 +1,14 @@
 import { Platform, StyleSheet, View } from 'react-native';
 import { Picker } from '@react-native-picker/picker';
-import { COLORS } from '../utils/constants';
+import { useTheme } from '../context/ThemeContext';
+import { RADIUS } from '../utils/theme';
 
 // @react-native-picker/picker renders very differently per platform: a compact
 // dropdown button on Android vs. a full spinning wheel on iOS. Fixing the
 // height keeps the wheel from ballooning the form's layout on iOS.
 export default function Select({ selectedValue, onValueChange, items }) {
+  const { colors } = useTheme();
+  const styles = getStyles(colors);
   return (
     <View style={styles.wrap}>
       <Picker selectedValue={selectedValue} onValueChange={onValueChange} style={styles.picker} itemStyle={styles.item}>
@@ -18,18 +21,19 @@ export default function Select({ selectedValue, onValueChange, items }) {
   );
 }
 
-const styles = StyleSheet.create({
+const getStyles = (colors) =>
+  StyleSheet.create({
   wrap: {
     borderWidth: 1,
-    borderColor: COLORS.border,
-    borderRadius: 14,
+    borderColor: colors.border,
+    borderRadius: RADIUS.md,
     overflow: 'hidden',
     justifyContent: 'center',
     height: Platform.OS === 'ios' ? 120 : 48,
   },
   picker: {
     ...Platform.select({
-      android: { color: COLORS.text },
+      android: { color: colors.text },
     }),
   },
   item: {

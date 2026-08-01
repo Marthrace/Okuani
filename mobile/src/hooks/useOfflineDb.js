@@ -12,7 +12,7 @@ const EMPTY_DB = { listings: [], messages: [], prices: [] };
  * to AsyncStorage instead of localStorage as the on-device cache, and syncs
  * against the same backend /api/sync endpoint.
  */
-export function useOfflineDb(networkStatus) {
+export function useOfflineDb(networkStatus, ownerId) {
   const [localDb, setLocalDb] = useState(EMPTY_DB);
   const [lastSyncTime, setLastSyncTime] = useState(0);
   const [hydrated, setHydrated] = useState(false);
@@ -123,6 +123,7 @@ export function useOfflineDb(networkStatus) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           lastSync: lastSyncRef.current,
+          ownerId,
           changes: { listings: unsyncedListings, messages: unsyncedMessages },
         }),
       });
@@ -193,7 +194,7 @@ export function useOfflineDb(networkStatus) {
     } finally {
       setIsSyncing(false);
     }
-  }, [networkStatus, addLog, fetchServerDb]);
+  }, [networkStatus, addLog, fetchServerDb, ownerId]);
 
   // Auto-sync whenever the effective network status flips to online (including
   // the initial hydrate, so anything queued from a previous offline session pushes).

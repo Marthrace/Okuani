@@ -21,6 +21,15 @@
     },
     "web": {
       "favicon": "./assets/favicon.png"
-    }
+    },
+    "plugins": [
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "OKUANI needs access to your photos to set your profile picture, ID photo, and product photos.",
+          "cameraPermission": "OKUANI needs camera access to let you take photos for your ID and produce listings."
+        }
+      ]
+    ]
   }
 }

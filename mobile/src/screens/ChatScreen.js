@@ -1,32 +1,63 @@
-import { useState } from 'react';
-import { FlatList, KeyboardAvoidingView, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useEffect, useState } from 'react';
+import { FlatList, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { COLORS } from '../utils/constants';
+import { useTheme } from '../context/ThemeContext';
+import { RADIUS, SPACING } from '../utils/theme';
 
-const LOCAL_SENDER = 'local-client';
-
-export default function ChatScreen({ localDb, setLocalDb, chatRecipient, networkStatus, addLog, syncData, onBack }) {
+export default function ChatScreen({ localDb, setLocalDb, chatRecipient, networkStatus, addLog, syncData, onBack, ownerId, onViewProfile }) {
+  const { colors } = useTheme();
+  const styles = getStyles(colors);
   const [chatMessage, setChatMessage] = useState('');
 
-  const chatRecipientId = chatRecipient ? chatRecipient.phone || chatRecipient.farmer_name : 'unknown';
+  // owner_id is the seller's stable account id — prefer it so chat history
+  // survives a farmer editing their display name/phone later, and so review
+  // gating (which checks the messages table by account id) actually works.
+  // Falls back to phone/name only for the two ownerless seed listings.
+  const chatRecipientId = chatRecipient ? chatRecipient.owner_id || chatRecipient.phone || chatRecipient.farmer_name : 'unknown';
   const recipientName = chatRecipient ? chatRecipient.farmer_name : 'Farmer';
 
   const messages = localDb.messages.filter(
     (m) =>
-      (m.sender_id === LOCAL_SENDER && m.receiver_id === chatRecipientId) ||
-      (m.sender_id === chatRecipientId && m.receiver_id === LOCAL_SENDER)
+      (m.sender_id === ownerId && m.receiver_id === chatRecipientId) ||
+      (m.sender_id === chatRecipientId && m.receiver_id === ownerId)
   );
+
+  // Marking a thread read lives here (not in the conversations list) so both
+  // entry points — the buyer's existing "Chat" button and the conversations
+  // list — get it automatically. unreadCount (App.js) is derived live from
+  // localDb.messages, so this updates the notification badge immediately.
+  useEffect(() => {
+    if (!chatRecipientId || chatRecipientId === 'unknown') return;
+    const hasUnread = localDb.messages.some(
+      (m) => m.sender_id === chatRecipientId && m.receiver_id === ownerId && !m.read
+    );
+    if (!hasUnread) return;
+
+    setLocalDb((prev) => ({
+      ...prev,
+      messages: prev.messages.map((m) =>
+        m.sender_id === chatRecipientId && m.receiver_id === ownerId && !m.read
+          ? { ...m, read: 1, synced: false }
+          : m
+      ),
+    }));
+    if (networkStatus === 'online') {
+      setTimeout(syncData, 500);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chatRecipientId, ownerId]);
 
   const handleSend = () => {
     if (!chatMessage.trim()) return;
 
     const newMsg = {
       id: 'msg-' + Date.now() + '-' + Math.random().toString(36).substring(2, 5),
-      sender_id: LOCAL_SENDER,
+      sender_id: ownerId,
       receiver_id: chatRecipientId,
       content: chatMessage,
       timestamp: Date.now(),
       synced: false,
+      owner_id: ownerId,
     };
 
     setLocalDb((prev) => ({ ...prev, messages: [...prev.messages, newMsg] }));
@@ -39,22 +70,24 @@ export default function ChatScreen({ localDb, setLocalDb, chatRecipient, network
   };
 
   return (
-    <KeyboardAvoidingView
-      style={styles.container}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      keyboardVerticalOffset={80}
-    >
+    <View style={styles.container}>
       <View style={styles.header}>
         <Pressable onPress={onBack} hitSlop={8}>
-          <Ionicons name="arrow-back" size={20} color={COLORS.text} />
+          <Ionicons name="arrow-back" size={20} color={colors.text} />
         </Pressable>
         <View>
           <Text style={styles.recipientName}>{recipientName}</Text>
           <View style={styles.inlineRow}>
-            <Ionicons name="call-outline" size={10} color={COLORS.textMuted} />
+            <Ionicons name="call-outline" size={10} color={colors.textMuted} />
             <Text style={styles.recipientPhone}>{chatRecipientId}</Text>
           </View>
         </View>
+        {chatRecipient?.owner_id && onViewProfile && (
+          <Pressable style={styles.viewProfileBtn} onPress={() => onViewProfile(chatRecipient.owner_id)} hitSlop={8}>
+            <Ionicons name="person-circle-outline" size={14} color={colors.primary} />
+            <Text style={styles.viewProfileText}>Profile</Text>
+          </Pressable>
+        )}
       </View>
 
       <FlatList
@@ -66,7 +99,7 @@ export default function ChatScreen({ localDb, setLocalDb, chatRecipient, network
           <Text style={styles.emptyText}>No messages yet. Send a message to start bargaining.</Text>
         }
         renderItem={({ item }) => {
-          const isSent = item.sender_id === LOCAL_SENDER;
+          const isSent = item.sender_id === ownerId;
           return (
             <View style={[styles.bubble, isSent ? styles.bubbleSent : styles.bubbleReceived]}>
               <Text style={isSent ? styles.bubbleTextSent : styles.bubbleTextReceived}>{item.content}</Text>
@@ -78,7 +111,7 @@ export default function ChatScreen({ localDb, setLocalDb, chatRecipient, network
                   <Ionicons
                     name={item.synced ? 'checkmark-done' : 'cloud-offline-outline'}
                     size={10}
-                    color={isSent ? '#DCF5E3' : COLORS.textMuted}
+                    color={isSent ? '#DCF5E3' : colors.textMuted}
                   />
                 )}
               </View>
@@ -99,58 +132,71 @@ export default function ChatScreen({ localDb, setLocalDb, chatRecipient, network
           <Ionicons name="send" size={16} color="#fff" />
         </Pressable>
       </View>
-    </KeyboardAvoidingView>
+    </View>
   );
 }
 
-const styles = StyleSheet.create({
+const getStyles = (colors) =>
+  StyleSheet.create({
   container: { flex: 1 },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
-    padding: 14,
+    gap: SPACING.md,
+    padding: SPACING.md + 2,
     borderBottomWidth: 1,
-    borderBottomColor: COLORS.border,
-    backgroundColor: COLORS.card,
+    borderBottomColor: colors.border,
+    backgroundColor: colors.card,
   },
-  recipientName: { fontWeight: '700', fontSize: 14, color: COLORS.text },
+  recipientName: { fontWeight: '800', fontSize: 14, color: colors.text },
   inlineRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  recipientPhone: { fontSize: 11, color: COLORS.textMuted },
+  recipientPhone: { fontSize: 11, color: colors.textMuted },
+  viewProfileBtn: {
+    marginLeft: 'auto',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: RADIUS.pill,
+    paddingHorizontal: SPACING.sm + 2,
+    paddingVertical: SPACING.xs + 1,
+  },
+  viewProfileText: { fontSize: 11, fontWeight: '700', color: colors.primary },
   messages: { flex: 1 },
-  messagesContent: { padding: 14, gap: 8 },
-  emptyText: { textAlign: 'center', padding: 30, color: COLORS.textMuted, fontSize: 12 },
-  bubble: { maxWidth: '78%', borderRadius: 14, padding: 10, marginBottom: 4 },
-  bubbleSent: { backgroundColor: COLORS.primary, alignSelf: 'flex-end', borderBottomRightRadius: 2 },
-  bubbleReceived: { backgroundColor: COLORS.card, alignSelf: 'flex-start', borderBottomLeftRadius: 2, borderWidth: 1, borderColor: COLORS.border },
+  messagesContent: { padding: SPACING.md + 2, gap: SPACING.sm },
+  emptyText: { textAlign: 'center', padding: 30, color: colors.textMuted, fontSize: 12 },
+  bubble: { maxWidth: '78%', borderRadius: RADIUS.md, padding: SPACING.sm + 2, marginBottom: 4 },
+  bubbleSent: { backgroundColor: colors.primary, alignSelf: 'flex-end', borderBottomRightRadius: 4 },
+  bubbleReceived: { backgroundColor: colors.card, alignSelf: 'flex-start', borderBottomLeftRadius: 4, borderWidth: 1, borderColor: colors.border },
   bubbleTextSent: { color: '#fff', fontSize: 13 },
-  bubbleTextReceived: { color: COLORS.text, fontSize: 13 },
+  bubbleTextReceived: { color: colors.text, fontSize: 13 },
   metaRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 4, alignSelf: 'flex-end' },
-  metaText: { fontSize: 9, color: COLORS.textMuted },
+  metaText: { fontSize: 9, color: colors.textMuted },
   metaTextSent: { fontSize: 9, color: '#DCF5E3' },
   inputArea: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    padding: 10,
+    gap: SPACING.sm,
+    padding: SPACING.sm + 2,
     borderTopWidth: 1,
-    borderTopColor: COLORS.border,
-    backgroundColor: COLORS.card,
+    borderTopColor: colors.border,
+    backgroundColor: colors.card,
   },
   input: {
     flex: 1,
     borderWidth: 1,
-    borderColor: COLORS.border,
-    borderRadius: 20,
-    paddingHorizontal: 14,
-    paddingVertical: 9,
+    borderColor: colors.border,
+    borderRadius: RADIUS.pill,
+    paddingHorizontal: SPACING.md + 2,
+    paddingVertical: SPACING.sm + 1,
     fontSize: 13,
   },
   sendBtn: {
     width: 38,
     height: 38,
-    borderRadius: 19,
-    backgroundColor: COLORS.primary,
+    borderRadius: RADIUS.pill,
+    backgroundColor: colors.primary,
     alignItems: 'center',
     justifyContent: 'center',
   },
