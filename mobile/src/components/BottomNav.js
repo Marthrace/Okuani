@@ -9,7 +9,6 @@ const TABS = [
   { key: 'prices', icon: 'stats-chart-outline', iconActive: 'stats-chart' },
   { key: 'buyer', icon: 'cart-outline', iconActive: 'cart' },
   { key: 'profile', icon: 'person-outline', iconActive: 'person' },
-  { key: 'settings', icon: 'settings-outline', iconActive: 'settings' },
 ];
 
 export default function BottomNav({ screen, onNavigate }) {

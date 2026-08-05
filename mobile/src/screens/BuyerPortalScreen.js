@@ -14,13 +14,25 @@ export default function BuyerPortalScreen({ localDb, onSwitchRole, onMessageFarm
   const styles = getStyles(colors);
   const [searchQuery, setSearchQuery] = useState('');
   const [filterLocation, setFilterLocation] = useState('All');
+  const [showMoreFilters, setShowMoreFilters] = useState(false);
+  const [minPrice, setMinPrice] = useState('');
+  const [maxPrice, setMaxPrice] = useState('');
+  const [minQuantity, setMinQuantity] = useState('');
+
+  const minPriceNum = parseFloat(minPrice);
+  const maxPriceNum = parseFloat(maxPrice);
+  const minQuantityNum = parseFloat(minQuantity);
+  const hasMoreFiltersApplied = minPrice !== '' || maxPrice !== '' || minQuantity !== '';
 
   const activeListings = localDb.listings.filter((l) => !l.deleted);
   const filteredListings = activeListings.filter((l) => {
     const q = searchQuery.toLowerCase();
     const matchesSearch = l.crop.toLowerCase().includes(q) || l.farmer_name.toLowerCase().includes(q);
     const matchesLocation = filterLocation === 'All' || l.location === filterLocation;
-    return matchesSearch && matchesLocation;
+    const matchesMinPrice = Number.isNaN(minPriceNum) || l.price >= minPriceNum;
+    const matchesMaxPrice = Number.isNaN(maxPriceNum) || l.price <= maxPriceNum;
+    const matchesQuantity = Number.isNaN(minQuantityNum) || l.quantity >= minQuantityNum;
+    return matchesSearch && matchesLocation && matchesMinPrice && matchesMaxPrice && matchesQuantity;
   });
 
   return (
@@ -57,6 +69,50 @@ export default function BuyerPortalScreen({ localDb, onSwitchRole, onMessageFarm
               <Select selectedValue={filterLocation} onValueChange={setFilterLocation} items={LOCATION_OPTIONS} />
             </View>
           </View>
+
+          <Pressable style={styles.moreFiltersToggle} onPress={() => setShowMoreFilters((v) => !v)}>
+            <Ionicons name="options-outline" size={14} color={colors.refGreen} />
+            <Text style={styles.moreFiltersToggleText}>
+              {showMoreFilters ? 'Hide price & quantity filters' : 'Price & quantity filters'}
+            </Text>
+            {hasMoreFiltersApplied && <View style={styles.filterActiveDot} />}
+            <Ionicons
+              name={showMoreFilters ? 'chevron-up' : 'chevron-down'}
+              size={14}
+              color={colors.textMuted}
+            />
+          </Pressable>
+
+          {showMoreFilters && (
+            <View style={styles.moreFiltersPanel}>
+              <Text style={styles.filterLabel}>Price range (GHS)</Text>
+              <View style={styles.rangeRow}>
+                <TextInput
+                  style={[styles.rangeInput, styles.flexItem]}
+                  placeholder="Min"
+                  keyboardType="numeric"
+                  value={minPrice}
+                  onChangeText={setMinPrice}
+                />
+                <Text style={styles.rangeDash}>–</Text>
+                <TextInput
+                  style={[styles.rangeInput, styles.flexItem]}
+                  placeholder="Max"
+                  keyboardType="numeric"
+                  value={maxPrice}
+                  onChangeText={setMaxPrice}
+                />
+              </View>
+              <Text style={[styles.filterLabel, styles.minQtyLabel]}>Minimum quantity available</Text>
+              <TextInput
+                style={styles.rangeInput}
+                placeholder="e.g. 50"
+                keyboardType="numeric"
+                value={minQuantity}
+                onChangeText={setMinQuantity}
+              />
+            </View>
+          )}
 
           <View style={styles.sectionHeaderRow}>
             <Text style={styles.sectionTitle}>Available Produce</Text>
@@ -132,9 +188,45 @@ const getStyles = (colors) =>
     fontSize: 13,
     backgroundColor: colors.card,
   },
-  filterRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: SPACING.md + 2 },
+  filterRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: SPACING.sm + 2 },
   filterLabel: { fontSize: 12, color: colors.textMuted },
   pickerFlex: { flex: 1 },
+  moreFiltersToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: SPACING.xs + 2,
+    marginBottom: SPACING.sm,
+  },
+  moreFiltersToggleText: { fontSize: 12, color: colors.refGreen, fontWeight: '700', flex: 1 },
+  filterActiveDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: colors.refGreen,
+  },
+  moreFiltersPanel: {
+    backgroundColor: colors.card,
+    borderRadius: RADIUS.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: SPACING.md,
+    gap: 6,
+    marginBottom: SPACING.md + 2,
+  },
+  rangeRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  rangeInput: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: RADIUS.md,
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.sm + 1,
+    fontSize: 13,
+    color: colors.text,
+  },
+  flexItem: { flex: 1 },
+  rangeDash: { color: colors.textMuted, fontSize: 13 },
+  minQtyLabel: { marginTop: 4 },
   sectionHeaderRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: SPACING.sm },
   sectionTitle: { fontSize: 14, fontWeight: '800', color: colors.text },
   countPill: {

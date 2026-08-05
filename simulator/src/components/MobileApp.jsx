@@ -4,7 +4,7 @@ import {
   Phone, Send, ArrowLeft, RefreshCw,
   Search, Filter, TrendingUp, TrendingDown, Minus, DollarSign,
   AlertCircle, Check, CheckCheck, WifiOff, Trash2, ChevronRight,
-  Camera, Upload, X, Star, Clock, Lightbulb
+  Camera, Upload, X, Star, Clock, Lightbulb, ChevronDown
 } from 'lucide-react';
 import {
   ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid,
@@ -134,6 +134,10 @@ export default function MobileApp({
   // Search/Filter States for Buyer
   const [searchQuery, setSearchQuery] = useState('');
   const [filterLocation, setFilterLocation] = useState('All');
+  const [showMoreFilters, setShowMoreFilters] = useState(false);
+  const [minPrice, setMinPrice] = useState('');
+  const [maxPrice, setMaxPrice] = useState('');
+  const [minQuantity, setMinQuantity] = useState('');
 
   // Active Chat Message State
   const [chatMessage, setChatMessage] = useState('');
@@ -642,13 +646,21 @@ export default function MobileApp({
   // 3. BUYER MARKETPLACE SCREEN
   if (currentScreen === 'buyer') {
     const activeListings = localDb.listings.filter(l => !l.deleted);
-    
-    // Filter listings based on search query and location select
+
+    const minPriceNum = parseFloat(minPrice);
+    const maxPriceNum = parseFloat(maxPrice);
+    const minQuantityNum = parseFloat(minQuantity);
+    const hasMoreFiltersApplied = minPrice !== '' || maxPrice !== '' || minQuantity !== '';
+
+    // Filter listings based on search query, location select, price range, and quantity
     const filteredListings = activeListings.filter(l => {
-      const matchesSearch = l.crop.toLowerCase().includes(searchQuery.toLowerCase()) || 
+      const matchesSearch = l.crop.toLowerCase().includes(searchQuery.toLowerCase()) ||
                             l.farmer_name.toLowerCase().includes(searchQuery.toLowerCase());
       const matchesLocation = filterLocation === 'All' || l.location === filterLocation;
-      return matchesSearch && matchesLocation;
+      const matchesMinPrice = Number.isNaN(minPriceNum) || l.price >= minPriceNum;
+      const matchesMaxPrice = Number.isNaN(maxPriceNum) || l.price <= maxPriceNum;
+      const matchesQuantity = Number.isNaN(minQuantityNum) || l.quantity >= minQuantityNum;
+      return matchesSearch && matchesLocation && matchesMinPrice && matchesMaxPrice && matchesQuantity;
     });
 
     const handleMessageFarmer = (listing) => openChatWith(listing);
@@ -698,6 +710,51 @@ export default function MobileApp({
               <option value="Accra">Accra</option>
             </select>
           </div>
+
+          <button
+            className="more-filters-toggle"
+            onClick={() => setShowMoreFilters(v => !v)}
+          >
+            <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              {showMoreFilters ? 'Hide price & quantity filters' : 'Price & quantity filters'}
+              {hasMoreFiltersApplied && <span className="filter-active-dot" />}
+            </span>
+            <ChevronDown size={14} style={{ transform: showMoreFilters ? 'rotate(180deg)' : 'none', transition: 'transform 0.15s ease' }} />
+          </button>
+
+          {showMoreFilters && (
+            <div className="more-filters-panel">
+              <label className="more-filters-label">Price range (GHS)</label>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <input
+                  type="number"
+                  className="input-control"
+                  style={{ flex: 1 }}
+                  placeholder="Min"
+                  value={minPrice}
+                  onChange={e => setMinPrice(e.target.value)}
+                />
+                <span style={{ color: 'var(--app-text-muted)' }}>–</span>
+                <input
+                  type="number"
+                  className="input-control"
+                  style={{ flex: 1 }}
+                  placeholder="Max"
+                  value={maxPrice}
+                  onChange={e => setMaxPrice(e.target.value)}
+                />
+              </div>
+              <label className="more-filters-label" style={{ marginTop: '6px' }}>Minimum quantity available</label>
+              <input
+                type="number"
+                className="input-control"
+                style={{ width: '100%' }}
+                placeholder="e.g. 50"
+                value={minQuantity}
+                onChange={e => setMinQuantity(e.target.value)}
+              />
+            </div>
+          )}
         </div>
 
         {/* Marketplace Grid */}

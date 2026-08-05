@@ -13,7 +13,6 @@ import BuyerPortalScreen from './src/screens/BuyerPortalScreen';
 import PriceDashboardScreen from './src/screens/PriceDashboardScreen';
 import ProductPriceTrendScreen from './src/screens/ProductPriceTrendScreen';
 import ChatScreen from './src/screens/ChatScreen';
-import SettingsScreen from './src/screens/SettingsScreen';
 import ProfileScreen from './src/screens/ProfileScreen';
 import ConversationsScreen from './src/screens/ConversationsScreen';
 import SignUpScreen from './src/screens/SignUpScreen';
@@ -42,7 +41,7 @@ export default function App() {
 function AppShell() {
   const { colors } = useTheme();
   const styles = getStyles(colors);
-  const { networkStatus, deviceOnline, simulateOffline, setSimulateOffline } = useNetworkStatus();
+  const { networkStatus } = useNetworkStatus();
   // useOfflineDb needs auth.ownerId and useAuth needs db.setLocalDb (to re-tag
   // guest records on merge) — a ref breaks the circular hook dependency, same
   // "assign latest during render" pattern useOfflineDb already uses internally.
@@ -288,23 +287,6 @@ function AppShell() {
             ownerId={auth.ownerId}
             onOpenChat={handleMessageFarmer}
             onBack={() => setScreen(preConversationsScreen)}
-          />
-        );
-      case 'settings':
-        return (
-          <SettingsScreen
-            networkStatus={networkStatus}
-            deviceOnline={deviceOnline}
-            simulateOffline={simulateOffline}
-            setSimulateOffline={setSimulateOffline}
-            serverDbState={db.serverDbState}
-            serverOnline={db.serverOnline}
-            syncLogs={db.syncLogs}
-            isSyncing={db.isSyncing}
-            syncData={wrappedSyncData}
-            handleResetAll={db.handleResetAll}
-            isGuest={auth.isGuest}
-            onLoginPress={() => openAuthScreen('login')}
           />
         );
       case 'signup':

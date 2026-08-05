@@ -30,8 +30,13 @@ const ROLE_OPTIONS = [
   { label: 'Seller', value: 'seller' },
 ];
 
+const THEME_OPTIONS = [
+  { key: 'light', label: 'Light', icon: 'sunny-outline' },
+  { key: 'dark', label: 'Dark', icon: 'moon-outline' },
+];
+
 export default function ProfileScreen({ auth, profileUserId, onBack, onLogout, networkStatus, hasPendingChanges }) {
-  const { colors } = useTheme();
+  const { colors, mode, setMode } = useTheme();
   // The cover photo is meant to bleed edge-to-edge behind the status bar
   // (App.js excludes the top safe-area edge for this screen specifically),
   // so the back button/icons and the cover's own height need to account for
@@ -509,6 +514,29 @@ export default function ProfileScreen({ auth, profileUserId, onBack, onLogout, n
       </View>
 
       {isOwnProfile && (
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>Appearance</Text>
+          <View style={styles.themeRow}>
+            {THEME_OPTIONS.map((opt) => {
+              const active = mode === opt.key;
+              return (
+                <Pressable
+                  key={opt.key}
+                  style={[styles.themeOption, active && styles.themeOptionActive]}
+                  onPress={() => setMode(opt.key)}
+                >
+                  <Ionicons name={opt.icon} size={16} color={active ? '#fff' : colors.textMuted} />
+                  <Text style={[styles.themeOptionText, active && styles.themeOptionTextActive]}>
+                    {opt.label}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        </View>
+      )}
+
+      {isOwnProfile && (
         <Pressable style={styles.logoutBtn} onPress={() => setLogoutModalVisible(true)}>
           <Ionicons name="log-out-outline" size={14} color={colors.danger} />
           <Text style={styles.logoutText}>Log Out</Text>
@@ -682,6 +710,21 @@ const getStyles = (colors) =>
     ...SHADOW.card,
   },
   cardTitle: { fontSize: 14, fontWeight: '800', color: colors.text },
+  themeRow: { flexDirection: 'row', gap: 10 },
+  themeOption: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: RADIUS.pill,
+    paddingVertical: SPACING.sm + 4,
+  },
+  themeOptionActive: { backgroundColor: colors.refGreen, borderColor: colors.refGreen },
+  themeOptionText: { fontSize: 13, fontWeight: '700', color: colors.textMuted },
+  themeOptionTextActive: { color: '#fff' },
   mutedText: { fontSize: 12, color: colors.textMuted },
 
   reviewsHeader: { gap: 6 },

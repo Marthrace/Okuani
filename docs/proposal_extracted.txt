@@ -1,0 +1,84 @@
+
+PROJECT PROPOSAL
+OKUANI
+A Mobile Application Connecting Smallholder Farmers to Buyers and Real-Time Market Price Information, with Offline-First Access
+Submitted in Partial Fulfilment of the Requirements for the Degree of
+BSc. Computer Science
+Submitted by: Obeng Mensah Jacob
+Student ID: 9031723
+Supervisor: Dr. K Agyemang
+Department of Computer Science
+KNUST
+July 2026
+
+
+1. Introduction / Background
+Agriculture remains the backbone of Ghana&apos;s rural economy, employing a large proportion of the rural workforce and contributing significantly to the national GDP. Despite this, smallholder farmers continue to face persistent challenges in translating their produce into fair income. Chief among these challenges is the lack of direct access to buyers and reliable, up-to-date market price information.
+In the absence of a transparent marketplace, farmers frequently depend on intermediaries (middlemen) who purchase produce at prices well below fair market value, citing transportation costs, spoilage risk, or simply exploiting the farmer&apos;s lack of information. On the other end, buyers such as market women, food processors, hotels, and restaurants often struggle to source produce consistently, reliably, and at competitive prices, resulting in inefficiencies on both sides of the transaction.
+This proposal presents OKUANI, a mobile application designed to close this information and access gap by connecting farmers directly with buyers, while providing a real-time (or crowd-sourced) market price dashboard that promotes transparency and fair pricing across regions. Given that rural connectivity in Ghana is often unreliable, the app is designed from the ground up as offline-first, so farmers are not excluded simply because they lack a stable internet connection at the moment they need to use it.
+2. Problem Statement
+Smallholder farmers in rural Ghana often sell their produce at a loss due to two compounding problems: (1) the absence of a direct channel to reach buyers beyond their immediate locality, and (2) the lack of access to real-time or comparative market price information across different markets and regions. This is worsened by a third, infrastructural problem: (3) inconsistent or absent internet connectivity in many rural areas, which renders purely online tools unusable exactly where they are needed most. This information asymmetry and connectivity gap is exploited by middlemen and results in reduced farmer income, post-harvest losses due to unsold produce, and inefficient allocation of agricultural goods across the supply chain. There is currently no widely accessible, low-cost mobile solution tailored to the Ghanaian rural context that addresses all three problems simultaneously.
+3. Objectives
+3.1 General Objective
+To design and implement an offline-first mobile application (with an optional SMS/USSD channel) that connects smallholder farmers directly to buyers and provides accessible market price information, thereby improving price transparency and farmer income even in areas with limited or intermittent internet connectivity.
+3.2 Specific Objectives
+No.
+Specific Objective
+1
+Enable farmers to create and manage produce listings (crop type, quantity, location, price, availability) directly from the mobile app.
+2
+Enable buyers to search and filter listings by crop, location, price range, and quantity.
+3
+Provide a market price dashboard within the app, aggregating and visualizing price trends across regions and markets.
+4
+Provide a basic in-app messaging/contact system between farmers and buyers.
+5
+Design the app to work offline-first, caching listings and price data locally on the device and syncing automatically once a connection is available, so farmers in low-connectivity areas can still use core features.
+6
+Build a simulated offline mode into the app (a toggle/testing harness that mimics no-network conditions) to demonstrate and validate offline behaviour during development, testing, and the final project defense.
+7
+(Stretch goal) Provide an SMS/USSD channel as a further fallback for farmers without smartphones.
+4. Literature Review
+Several studies and existing platforms have explored the use of ICT (Information and Communication Technology) to address agricultural market inefficiencies in Sub-Saharan Africa. Mobile-based platforms such as Esoko and Farmerline have demonstrated that providing market price information via SMS can improve farmer bargaining power and reduce dependence on middlemen. Similarly, e-commerce-style agricultural marketplaces in Kenya and Nigeria (e.g., Twiga Foods, Farmcrowdy) have shown that direct farmer-to-buyer digital linkages can reduce post-harvest losses and improve income stability.
+However, many of these platforms are either region-specific, require significant infrastructure investment, or assume continuous internet access — an assumption that does not hold in much of rural Ghana. Research on offline-first mobile design (a pattern widely used in fieldwork, health, and commerce apps for low-connectivity regions) shows that local-first data storage combined with background synchronization can preserve full core functionality without a live connection. This project builds on these precedents by proposing a lightweight, locally-relevant mobile application that combines a marketplace listing system with a price transparency dashboard, built offline-first rather than treating offline access as an afterthought.
+5. Methodology
+5.1 Development Approach
+The project will follow an Agile (iterative) software development methodology, allowing for incremental development, continuous testing, and adjustments based on supervisor and user feedback throughout the project.
+5.2 System Architecture
+Mobile Frontend: React Native (or Flutter) for a single cross-platform codebase targeting Android, which has the widest reach among smartphone users in rural Ghana.
+Local/Offline Storage: An on-device database (SQLite via a library such as WatermelonDB, or Realm) to store listings, price data, and messages locally, so the app remains fully usable without a live connection.
+Backend: Node.js with Express.js (or Django) exposing a REST/GraphQL API for syncing data when the device is online.
+Database (server-side): PostgreSQL or MySQL for the authoritative copy of users, listings, transactions, and price data.
+Sync Layer: A background synchronization service that queues changes made offline (new listings, messages, price submissions) and pushes/pulls them once connectivity is restored, with conflict resolution for concurrent edits.
+Optional SMS/USSD Integration: Africa&apos;s Talking API as an additional fallback channel for farmers without smartphones at all.
+Hosting/Deployment: Render, Railway, or a university-provided server for the backend during testing and demonstration.
+5.3 Offline-First Design and Simulated Offline Mode
+Because reliable connectivity cannot be assumed in the app&apos;s target environment, offline access is treated as a core design constraint rather than an edge case. All primary actions — creating a produce listing, browsing cached listings and prices, and composing messages — will work entirely from local storage, with changes queued for sync. To make this testable and demonstrable without needing an actual rural, low-connectivity environment, the app will include a built-in simulated offline mode: a developer/demo toggle (or use of the emulator&apos;s network-throttling and airplane-mode controls) that forces the app into a no-connectivity state on demand. This will be used to verify that all core features continue to function offline, to demonstrate the sync-on-reconnect behaviour live during testing and the project defense, and to test conflict handling when the same listing or price is edited from multiple devices while offline.
+5.4 Data Collection for Market Prices
+Market price data will be sourced through a combination of (a) manual/crowd-sourced input from registered market agents or buyers, and (b) publicly available agricultural price bulletins where accessible, to seed the dashboard with realistic baseline data during development and testing.
+5.5 Testing
+The system will undergo unit testing (individual modules), integration testing (module interactions, including sync logic), and user acceptance testing (UAT) with a small sample of representative users (e.g., students role-playing as farmers/buyers, or a pilot group if feasible). Offline behaviour will specifically be validated using the simulated offline mode described above, covering scenarios such as: creating a listing offline and confirming it syncs correctly once reconnected, and viewing previously cached prices while offline.
+6. Expected Outcomes
+A functional Android mobile app prototype demonstrating farmer produce listing and buyer search/matching.
+A market price dashboard within the app, visualizing price comparisons across regions/markets.
+A basic in-app messaging feature enabling direct contact between farmers and buyers.
+A working offline-first mode, including a simulated offline toggle usable during demonstrations, showing that listings, prices, and messages remain accessible and editable without a live connection, with automatic sync on reconnect.
+A written analysis/case study discussing the app&apos;s potential impact on rural farmer income and market efficiency.
+(Optional) A working demonstration of SMS/USSD-based access for non-smartphone users.
+7. Significance of the Project
+This project directly addresses a real socio-economic problem affecting rural livelihoods in Ghana, aligning with the broader theme of bridging information and access gaps seen across other approved projects in this cohort. Its offline-first design also addresses a practical infrastructural barrier — unreliable rural connectivity — that limits the real-world usefulness of many purely web-based solutions. Beyond its academic value, OKUANI has the potential to serve as a foundation for a real-world intervention that improves income transparency and market efficiency for smallholder farmers, with clear extensibility toward logistics, credit access, or cooperative-buying features in future iterations.
+8. Tools and Resources Required
+Laptop/computer with internet access for development and testing.
+Android device or emulator (with network-throttling/airplane-mode support) for offline testing.
+Code editor (VS Code) and version control (Git/GitHub).
+Mobile development framework: React Native (Expo) or Flutter SDK.
+Cloud hosting account (Render/Railway) or university server access for the backend.
+Africa&apos;s Talking developer account (for SMS/USSD stretch goal).
+Access to sample/representative agricultural price data for testing.
+9. References
+Esoko Ghana. Market Price Information Services. Retrieved from https://esoko.com
+Farmerline. Digital Agricultural Solutions for Smallholder Farmers. Retrieved from https://farmerline.co
+Twiga Foods. B2B Food Distribution Platform. Retrieved from https://twiga.com
+Food and Agriculture Organization (FAO). (2021). The State of Food and Agriculture in Sub-Saharan Africa.
+Ghana Statistical Service. (2023). Annual Agricultural Sector Report.
+Note: References should be updated with the specific sources you consult during your literature review, formatted according to your department&apos;s required citation style (e.g., APA, IEEE).
