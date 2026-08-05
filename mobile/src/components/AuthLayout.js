@@ -1,4 +1,5 @@
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../context/ThemeContext';
@@ -6,7 +7,8 @@ import { RADIUS, SHADOW, SPACING } from '../utils/theme';
 
 export default function AuthLayout({ title, subtitle, onBack, children, footer }) {
   const { colors } = useTheme();
-  const styles = getStyles(colors);
+  const insets = useSafeAreaInsets();
+  const styles = getStyles(colors, insets);
   return (
     <View style={styles.root}>
       <LinearGradient
@@ -42,7 +44,7 @@ export default function AuthLayout({ title, subtitle, onBack, children, footer }
   );
 }
 
-const getStyles = (colors) =>
+const getStyles = (colors, insets) =>
   StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.bg },
   hero: {
@@ -74,7 +76,10 @@ const getStyles = (colors) =>
   title: { fontSize: 23, fontWeight: '800', color: '#fff', marginBottom: 6 },
   subtitle: { fontSize: 12, color: '#CFE3D6', lineHeight: 17 },
   scroll: { flex: 1, marginTop: -18 },
-  scrollContent: { paddingHorizontal: SPACING.xl + 2, paddingBottom: SPACING.xxl + 4 },
+  // No BottomNav sits below this screen, so this is the only thing padding
+  // for the bottom safe area (home indicator / Android gesture bar) —
+  // additive to the existing spacing, not a replacement of it.
+  scrollContent: { paddingHorizontal: SPACING.xl + 2, paddingBottom: SPACING.xxl + 4 + insets.bottom },
   card: {
     backgroundColor: colors.card,
     borderRadius: RADIUS.xl,

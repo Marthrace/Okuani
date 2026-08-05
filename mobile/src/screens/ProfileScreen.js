@@ -11,6 +11,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
 import ListingCard from '../components/ListingCard';
@@ -31,6 +32,11 @@ const ROLE_OPTIONS = [
 
 export default function ProfileScreen({ auth, profileUserId, onBack, onLogout, networkStatus, hasPendingChanges }) {
   const { colors } = useTheme();
+  // The cover photo is meant to bleed edge-to-edge behind the status bar
+  // (App.js excludes the top safe-area edge for this screen specifically),
+  // so the back button/icons and the cover's own height need to account for
+  // that inset themselves instead of relying on the outer SafeAreaView.
+  const insets = useSafeAreaInsets();
   const styles = getStyles(colors);
   const profileApi = useProfile(auth);
   const isOwnProfile = auth.user?.id === profileUserId;
@@ -223,7 +229,7 @@ export default function ProfileScreen({ auth, profileUserId, onBack, onLogout, n
 
   return (
     <ScrollView style={styles.root} contentContainerStyle={styles.content}>
-      <View style={styles.coverTopRow}>
+      <View style={[styles.coverTopRow, { top: 14 + insets.top }]}>
         <Pressable style={styles.backBtn} onPress={onBack} hitSlop={8}>
           <Ionicons name="arrow-back" size={20} color="#fff" />
         </Pressable>
@@ -242,7 +248,7 @@ export default function ProfileScreen({ auth, profileUserId, onBack, onLogout, n
       </View>
 
       <Pressable
-        style={styles.cover}
+        style={[styles.cover, { height: 130 + insets.top }]}
         onPress={isOwnProfile ? () => pickImage('cover') : undefined}
         disabled={!isOwnProfile || uploadingSlot === 'cover'}
       >

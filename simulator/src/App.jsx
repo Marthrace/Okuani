@@ -1,15 +1,25 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { 
-  Wifi, WifiOff, Database, RefreshCw, 
-  Smartphone, Bell, Trash2, ShieldCheck, 
-  Layers, LogOut, Server, CheckCheck
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import {
+  Wifi, WifiOff, Database, RefreshCw,
+  Smartphone, Bell, Trash2, ShieldCheck,
+  Layers, LogOut, Server, CheckCheck, User
 } from 'lucide-react';
 import MobileApp from './components/MobileApp';
 import SyncEngineInspector from './components/SyncEngineInspector';
 import RetroUSSDSimulator from './components/RetroUSSDSimulator';
+import PublicProfilePage from './components/PublicProfilePage';
+import ProfileSetupPrompt from './components/ProfileSetupPrompt';
 import { buildApiUrl } from './utils/api';
+import { useAuth } from './hooks/useAuth';
 
 const SERVER_URL = buildApiUrl('');
+const AUTH_SCREENS = ['signup', 'login', 'forgot-request', 'forgot-verify', 'forgot-reset'];
+const PROFILE_PROMPT_KEY_PREFIX = 'okuani_profile_prompted_';
+
+// A shared profile link should render as a normal public webpage, not inside
+// the fake-phone simulator chrome — checked once at module load since this
+// app has no router and the URL doesn't change without a reload.
+const PUBLIC_PROFILE_ID = new URLSearchParams(window.location.search).get('profile');
 
 const formatTimestamp = (value) => {
   if (!value) return '—';
@@ -18,6 +28,10 @@ const formatTimestamp = (value) => {
 };
 
 function App() {
+  if (PUBLIC_PROFILE_ID) {
+    return <PublicProfilePage userId={PUBLIC_PROFILE_ID} />;
+  }
+
   // Network and Dashboard States
   const [networkStatus, setNetworkStatus] = useState('online'); // 'online' | 'offline'
   const [syncLogs, setSyncLogs] = useState([]);
@@ -38,7 +52,9 @@ function App() {
     return {
       listings: [],
       messages: [],
-      prices: []
+      prices: [],
+      priceSummary: [],
+      priceSummaryFetchedAt: null
     };
   });
 
@@ -47,11 +63,119 @@ function App() {
     return saved ? parseInt(saved, 10) : 0;
   });
 
+  const auth = useAuth(setLocalDb);
+
+  const unreadCount = auth.ownerId
+    ? localDb.messages.filter((m) => m.receiver_id === auth.ownerId && !m.read).length
+    : 0;
+
   // App Client Navigation States
-  const [currentScreen, setCurrentScreen] = useState('welcome'); // 'welcome', 'farmer', 'buyer', 'prices', 'chat'
+  const [currentScreen, setCurrentScreen] = useState('welcome'); // 'welcome', 'farmer', 'buyer', 'prices', 'chat', or an auth screen
   const [activeRole, setActiveRole] = useState(null); // 'farmer' | 'buyer'
   const [chatRecipient, setChatRecipient] = useState(null); // Farmer listing object or Buyer ID
+  const [trendProduct, setTrendProduct] = useState(null); // { crop, market_name, region } for the Product Price Trend screen
   const [smsAlert, setSmsAlert] = useState(null);
+  const [resetContext, setResetContext] = useState(null);
+  const [preAuthScreen, setPreAuthScreen] = useState('welcome');
+  const [viewedProfileId, setViewedProfileId] = useState(null);
+  const [preProfileScreen, setPreProfileScreen] = useState('welcome');
+  const [profileSetupVisible, setProfileSetupVisible] = useState(false);
+  const [preConversationsScreen, setPreConversationsScreen] = useState('welcome');
+
+  const openAuthScreen = (target) => {
+    setPreAuthScreen(currentScreen);
+    setCurrentScreen(target);
+  };
+
+  const viewProfile = (userId) => {
+    setPreProfileScreen(currentScreen);
+    setViewedProfileId(userId);
+    setCurrentScreen('profile');
+  };
+
+  const viewConversations = () => {
+    setPreConversationsScreen(currentScreen);
+    setCurrentScreen('conversations');
+  };
+
+  // Runs whenever a fresh account becomes signed-in, rather than reading
+  // auth.user synchronously right after an async signUp()/login() call
+  // (mirrors mobile/App.js's same guard for the same reason).
+  const promptedUserRef = useRef(null);
+  useEffect(() => {
+    const userId = auth.user?.id;
+    if (!userId || promptedUserRef.current === userId) return;
+    promptedUserRef.current = userId;
+    const key = PROFILE_PROMPT_KEY_PREFIX + userId;
+    if (!localStorage.getItem(key)) {
+      localStorage.setItem(key, '1');
+      setProfileSetupVisible(true);
+    }
+  }, [auth.user?.id]);
+
+  // Welcome no longer has its own Farmer/Buyer entry points (just the single
+  // Continue button into the auth flow), so an auth flow entered FROM welcome
+  // can no longer land back on welcome afterward — that would be a dead end
+  // with no way into the app. Land on the Farmer/Home screen instead, same as
+  // the app-nav's role tabs already do.
+  const postAuthLandingScreen = () => {
+    if (AUTH_SCREENS.includes(preAuthScreen) || preAuthScreen === 'welcome') {
+      setActiveRole('farmer');
+      return 'farmer';
+    }
+    return preAuthScreen;
+  };
+
+  const handleAuthSuccess = () => {
+    setSmsAlert({ text: `Welcome, ${auth.user?.name || 'back'}!` });
+    setCurrentScreen(postAuthLandingScreen());
+  };
+
+  const handleLogout = () => {
+    auth.logout();
+    setCurrentScreen('welcome');
+  };
+
+  const handleContinueAsGuest = async () => {
+    // "Continue as Guest" must start with a genuinely clean identity — if a
+    // real account was previously logged in on this device (its session
+    // persisted in localStorage from before), auth.user/token were still
+    // sitting there unchanged, so the app kept showing that person's name
+    // and details everywhere even though the user thought they'd gone
+    // guest. Clear any existing session first.
+    if (auth.user) {
+      await auth.logout();
+    }
+    auth.ensureGuestId();
+    setCurrentScreen(postAuthLandingScreen());
+  };
+
+  const handleCancelAuth = () => {
+    setCurrentScreen(AUTH_SCREENS.includes(preAuthScreen) ? 'welcome' : preAuthScreen);
+  };
+
+  const handleIdentityPress = () => {
+    if (auth.isGuest) {
+      openAuthScreen('login');
+    } else {
+      viewProfile(auth.user.id);
+    }
+  };
+
+  const handleProfileSetupComplete = () => {
+    setProfileSetupVisible(false);
+    viewProfile(auth.user.id);
+  };
+
+  const handleShareProfile = (userId) => {
+    const url = `${window.location.origin}${window.location.pathname}?profile=${userId}`;
+    if (navigator.clipboard?.writeText) {
+      navigator.clipboard.writeText(url);
+      setSmsAlert({ text: 'Profile link copied to clipboard.' });
+    } else {
+      window.prompt('Copy your profile link:', url);
+    }
+  };
 
   // Sync Logger helper
   const addLog = useCallback((message, type = 'info') => {
@@ -68,14 +192,18 @@ function App() {
     localStorage.setItem('okuani_last_sync', lastSyncTime.toString());
   }, [lastSyncTime]);
 
-  // Fetch SQLite Server Database State (for Control Panel Monitor)
+  // Fetch SQLite Server Database State (for Control Panel Monitor). Requires
+  // a logged-in session now (db-state exposes private message content), so
+  // guests simply see the monitor as unavailable rather than spamming 401s.
   const fetchServerDb = useCallback(async () => {
-    if (networkStatus === 'offline') {
+    if (networkStatus === 'offline' || !auth.token) {
       setServerOnline(false);
       return;
     }
     try {
-      const res = await fetch(`${SERVER_URL}/api/db-state`);
+      const res = await fetch(`${SERVER_URL}/api/db-state`, {
+        headers: { Authorization: `Bearer ${auth.token}` }
+      });
       if (res.ok) {
         const data = await res.json();
         setServerDbState(data);
@@ -86,7 +214,7 @@ function App() {
     } catch (e) {
       setServerOnline(false);
     }
-  }, [networkStatus]);
+  }, [networkStatus, auth.token]);
 
   // Trigger db pull on network status change or load
   useEffect(() => {
@@ -110,6 +238,22 @@ function App() {
       }
     } catch (e) {
       addLog('Failed to pre-fetch price dashboard. Offline cache will be used.', 'warning');
+    }
+
+    // Trend-annotated (current/previous/change/%/trend) rows for the Market
+    // Dashboard overview cards — cached the same offline-first way as `prices`.
+    try {
+      const res = await fetch(`${SERVER_URL}/api/prices/summary`);
+      if (res.ok) {
+        const data = await res.json();
+        setLocalDb(prev => ({
+          ...prev,
+          priceSummary: data,
+          priceSummaryFetchedAt: Date.now()
+        }));
+      }
+    } catch (e) {
+      addLog('Failed to pre-fetch price trend summary. Offline cache will be used.', 'warning');
     }
   }, [networkStatus, addLog]);
 
@@ -136,11 +280,15 @@ function App() {
 
     try {
       // 2. Perform Sync API Call
+      const syncHeaders = { 'Content-Type': 'application/json' };
+      if (auth.token) syncHeaders.Authorization = `Bearer ${auth.token}`;
+
       const response = await fetch(`${SERVER_URL}/api/sync`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: syncHeaders,
         body: JSON.stringify({
           lastSync: lastSyncTime,
+          ownerId: auth.ownerId,
           changes: {
             listings: unsyncedListings,
             messages: unsyncedMessages
@@ -246,7 +394,7 @@ function App() {
     } finally {
       setIsSyncing(false);
     }
-  }, [networkStatus, localDb, lastSyncTime, currentScreen, addLog, fetchServerDb]);
+  }, [networkStatus, localDb, lastSyncTime, currentScreen, addLog, fetchServerDb, auth.ownerId, auth.token]);
 
   // Auto-sync when toggling network back online
   useEffect(() => {
@@ -260,22 +408,32 @@ function App() {
     // Clear local storage
     localStorage.removeItem('okuani_local_db');
     localStorage.removeItem('okuani_last_sync');
-    setLocalDb({ listings: [], messages: [], prices: [] });
+    setLocalDb({ listings: [], messages: [], prices: [], priceSummary: [], priceSummaryFetchedAt: null });
     setLastSyncTime(0);
     setSyncLogs([]);
     addLog('Local client database wiped clean.', 'info');
 
-    // Wipe server database
+    // Wipe server database (requires a logged-in session — db-reset would
+    // otherwise let any anonymous caller wipe the shared demo database)
     if (networkStatus === 'online') {
-      try {
-        const res = await fetch(`${SERVER_URL}/api/db-reset`, { method: 'POST' });
-        if (res.ok) {
-          addLog('SQLite server database successfully reset and re-seeded.', 'success');
-          fetchServerDb();
-          cachePricesLocally();
+      if (!auth.token) {
+        addLog('Log in to reset the shared server database.', 'warning');
+      } else {
+        try {
+          const res = await fetch(`${SERVER_URL}/api/db-reset`, {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${auth.token}` }
+          });
+          if (res.ok) {
+            addLog('SQLite server database successfully reset and re-seeded.', 'success');
+            fetchServerDb();
+            cachePricesLocally();
+          } else {
+            addLog('Server rejected the reset request.', 'error');
+          }
+        } catch (e) {
+          addLog('Failed to reach backend to reset server DB.', 'error');
         }
-      } catch (e) {
-        addLog('Failed to reach backend to reset server DB.', 'error');
       }
     }
   };
@@ -297,16 +455,40 @@ function App() {
                 OKUANI <span>OFFLINE-1ST</span>
               </div>
               <div className="app-header-icons">
-                {networkStatus === 'online' ? (
-                  <Wifi size={16} className="status-synced" title="Network Connected" />
-                ) : (
-                  <WifiOff size={16} className="status-pending" title="No Network Connection" />
+                {/* Scoped to the Home/Farmer screen only, matching mobile's
+                    FarmerPortalScreen-only hero chip — the app-nav Profile tab
+                    below is already the one dedicated Profile entry point, so
+                    this avatar-style button isn't repeated on every screen. */}
+                {currentScreen === 'farmer' && (
+                  <button className="identity-pill" onClick={handleIdentityPress}>
+                    {auth.isGuest ? 'Guest' : auth.user?.name}
+                  </button>
                 )}
-                {localDb.listings.some(l => !l.synced) || localDb.messages.some(m => !m.synced) ? (
-                  <Database size={16} className="status-pending" title="Offline updates waiting to sync" />
-                ) : (
-                  <CheckCheck size={16} className="status-synced" title="All changes synced" />
-                )}
+                <button
+                  className="app-header-icon-chip"
+                  style={{ border: 'none', cursor: 'pointer', position: 'relative' }}
+                  onClick={viewConversations}
+                  title="Messages"
+                >
+                  <Bell size={15} color="white" />
+                  {unreadCount > 0 && (
+                    <span className="notif-badge-dot">{unreadCount}</span>
+                  )}
+                </button>
+                <span className="app-header-icon-chip">
+                  {networkStatus === 'online' ? (
+                    <Wifi size={15} className="status-synced" title="Network Connected" />
+                  ) : (
+                    <WifiOff size={15} className="status-pending" title="No Network Connection" />
+                  )}
+                </span>
+                <span className="app-header-icon-chip">
+                  {localDb.listings.some(l => !l.synced) || localDb.messages.some(m => !m.synced) ? (
+                    <Database size={15} className="status-pending" title="Offline updates waiting to sync" />
+                  ) : (
+                    <CheckCheck size={15} className="status-synced" title="All changes synced" />
+                  )}
+                </span>
               </div>
             </div>
 
@@ -328,23 +510,38 @@ function App() {
 
             {/* Screen Content Wrapper */}
             <div className="app-content">
-              <MobileApp 
-                currentScreen={currentScreen} 
-                setCurrentScreen={setCurrentScreen} 
-                activeRole={activeRole} 
+              <MobileApp
+                currentScreen={currentScreen}
+                setCurrentScreen={setCurrentScreen}
+                activeRole={activeRole}
                 setActiveRole={setActiveRole}
                 localDb={localDb}
                 setLocalDb={setLocalDb}
                 networkStatus={networkStatus}
                 chatRecipient={chatRecipient}
                 setChatRecipient={setChatRecipient}
+                trendProduct={trendProduct}
+                setTrendProduct={setTrendProduct}
                 addLog={addLog}
                 syncData={syncData}
+                auth={auth}
+                resetContext={resetContext}
+                setResetContext={setResetContext}
+                onAuthSuccess={handleAuthSuccess}
+                onContinueAsGuest={handleContinueAsGuest}
+                onCancelAuth={handleCancelAuth}
+                openAuthScreen={openAuthScreen}
+                onViewProfile={viewProfile}
+                viewedProfileId={viewedProfileId}
+                onProfileBack={() => setCurrentScreen(preProfileScreen)}
+                onLogout={handleLogout}
+                onShareProfile={handleShareProfile}
+                onConversationsBack={() => setCurrentScreen(preConversationsScreen)}
               />
             </div>
 
-            {/* App Navigation (Hidden on welcome screen) */}
-            {currentScreen !== 'welcome' && (
+            {/* App Navigation (Hidden on welcome screen and auth screens) */}
+            {currentScreen !== 'welcome' && !AUTH_SCREENS.includes(currentScreen) && (
               <div className="app-nav">
                 <button 
                   className={`nav-item ${activeRole === 'farmer' && currentScreen === 'farmer' ? 'active' : ''}`}
@@ -366,12 +563,25 @@ function App() {
                   <Layers />
                   <span>Buyer Port</span>
                 </button>
-                <button 
+                <button
                   className={`nav-item ${currentScreen === 'prices' ? 'active' : ''}`}
                   onClick={() => setCurrentScreen('prices')}
                 >
-                  <RefreshSlant />
+                  <RefreshCw />
                   <span>Market Prices</span>
+                </button>
+                <button
+                  className={`nav-item ${currentScreen === 'profile' ? 'active' : ''}`}
+                  onClick={() => {
+                    if (auth.isGuest) {
+                      openAuthScreen('login');
+                    } else {
+                      viewProfile(auth.user.id);
+                    }
+                  }}
+                >
+                  <User />
+                  <span>Profile</span>
                 </button>
               </div>
             )}
@@ -435,9 +645,11 @@ function App() {
                 >
                   <RefreshCw size={14} className={isSyncing ? 'spin-icon' : ''} /> Force Trigger Sync
                 </button>
-                <button 
-                  onClick={handleResetAll} 
-                  className="btn-outline" 
+                <button
+                  onClick={handleResetAll}
+                  disabled={!auth.token}
+                  title={auth.token ? undefined : 'Log in to reset the shared server database'}
+                  className="btn-outline"
                   style={{ padding: '8px 12px', fontSize: '12px', borderColor: 'var(--danger)', color: 'var(--danger)' }}
                 >
                   <Trash2 size={14} style={{ marginRight: '6px' }} /> Clear DBs
@@ -469,6 +681,13 @@ function App() {
                   {serverOnline ? 'Connected (Active)' : 'Offline'}
                 </span>
               </div>
+              {!auth.token ? (
+                <div className="inspector-content">
+                  <div className="app-card" style={{ padding: '16px', color: 'var(--dash-text-muted)' }}>
+                    Log in to view the server database monitor (it shows private message content, so it now requires an authenticated session).
+                  </div>
+                </div>
+              ) : (
               <div className="inspector-content">
                 <div className="db-stat-row">
                   <div className="db-stat-card">
@@ -534,8 +753,8 @@ function App() {
                       ) : (
                         serverDbState.messages.map(m => (
                           <tr key={m.id}>
-                            <td>{m.sender_id === 'local-client' ? 'Buyer (App)' : m.sender_id.substring(0,6)}</td>
-                            <td>{m.receiver_id === 'local-client' ? 'Buyer (App)' : m.receiver_id.substring(0,6)}</td>
+                            <td>{m.sender_id === auth.ownerId ? 'Buyer (App)' : m.sender_id?.substring(0,6)}</td>
+                            <td>{m.receiver_id === auth.ownerId ? 'Buyer (App)' : m.receiver_id?.substring(0,6)}</td>
                             <td>{m.content}</td>
                             <td>{formatTimestamp(m.timestamp)}</td>
                           </tr>
@@ -545,6 +764,7 @@ function App() {
                   </table>
                 </div>
               </div>
+              )}
             </div>
 
             {/* Sync Engine Log Monitor */}
@@ -565,6 +785,12 @@ function App() {
           </div>
         </div>
       </div>
+
+      <ProfileSetupPrompt
+        visible={profileSetupVisible}
+        onComplete={handleProfileSetupComplete}
+        onSkip={() => setProfileSetupVisible(false)}
+      />
     </div>
   );
 }

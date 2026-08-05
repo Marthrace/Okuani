@@ -11,6 +11,7 @@ import WelcomeScreen from './src/screens/WelcomeScreen';
 import FarmerPortalScreen from './src/screens/FarmerPortalScreen';
 import BuyerPortalScreen from './src/screens/BuyerPortalScreen';
 import PriceDashboardScreen from './src/screens/PriceDashboardScreen';
+import ProductPriceTrendScreen from './src/screens/ProductPriceTrendScreen';
 import ChatScreen from './src/screens/ChatScreen';
 import SettingsScreen from './src/screens/SettingsScreen';
 import ProfileScreen from './src/screens/ProfileScreen';
@@ -24,6 +25,7 @@ import ProfileSetupPrompt from './src/components/ProfileSetupPrompt';
 import { useNetworkStatus } from './src/hooks/useNetworkStatus';
 import { useOfflineDb } from './src/hooks/useOfflineDb';
 import { useAuth } from './src/hooks/useAuth';
+import { useKeyboardVisible } from './src/hooks/useKeyboardVisible';
 import { ThemeProvider, useTheme } from './src/context/ThemeContext';
 
 const AUTH_SCREENS = ['signup', 'login', 'forgot-request', 'forgot-verify', 'forgot-reset'];
@@ -46,11 +48,13 @@ function AppShell() {
   // "assign latest during render" pattern useOfflineDb already uses internally.
   const setLocalDbRef = useRef(null);
   const auth = useAuth((updater) => setLocalDbRef.current?.(updater));
-  const db = useOfflineDb(networkStatus, auth.ownerId);
+  const db = useOfflineDb(networkStatus, auth.ownerId, auth.token);
   setLocalDbRef.current = db.setLocalDb;
+  const keyboardVisible = useKeyboardVisible();
 
-  const [screen, setScreen] = useState('welcome');
+  const [screen, setScreen] = useState('login');
   const [chatRecipient, setChatRecipient] = useState(null);
+  const [priceTrendParams, setPriceTrendParams] = useState(null);
   const [smsAlert, setSmsAlert] = useState(null);
   const [resetContext, setResetContext] = useState(null);
   const [preAuthScreen, setPreAuthScreen] = useState('welcome');
@@ -127,7 +131,16 @@ function AppShell() {
     setScreen('welcome');
   };
 
-  const handleContinueAsGuest = () => {
+  const handleContinueAsGuest = async () => {
+    // "Continue as Guest" must start with a genuinely clean identity — if a
+    // real account was previously logged in on this device (its session
+    // persisted in AsyncStorage from before), auth.user/token were still
+    // sitting there unchanged, so the app kept showing that person's name
+    // and details everywhere even though the user thought they'd gone
+    // guest. Clear any existing session first.
+    if (auth.user) {
+      await auth.logout();
+    }
     auth.ensureGuestId();
     setScreen(postAuthLandingScreen());
   };
@@ -154,6 +167,11 @@ function AppShell() {
     setScreen('chat');
   };
 
+  const handleViewPriceTrend = (params) => {
+    setPriceTrendParams(params);
+    setScreen('price-trend');
+  };
+
   const wrappedSyncData = async () => {
     const result = await db.syncData();
     if (result?.receivedNewMessage && screen !== 'chat') {
@@ -171,6 +189,23 @@ function AppShell() {
   // panel with network/sync status folded in, so the generic Header would just
   // duplicate it as a second stacked green box on those two screens.
   const showTopHeader = !chromeHidden && screen !== 'farmer' && screen !== 'profile';
+  // Every other screen has a dark hero/header starting right at the top (the
+  // shared Header, FarmerPortalScreen/ProfileScreen's own hero, the Welcome
+  // gradient, or AuthLayout's dark hero) — only Login/Sign Up (AuthTabsLayout)
+  // have a plain light background right up to the status bar, so only those
+  // two need dark status bar icons instead of the light ones used everywhere else.
+  const lightTopScreen = screen === 'login' || screen === 'signup';
+  // The safe-area strip behind the status bar has no content of its own, so
+  // its color must exactly match whatever the screen's own top edge uses —
+  // otherwise the two show up as visibly different shades of green stacked
+  // on top of each other. FarmerPortalScreen's hero uses refGreen, not
+  // forestDark like the shared Header/other heroes, so it needs its own case.
+  const topSafeAreaColor = lightTopScreen ? colors.bg : screen === 'farmer' ? colors.refGreen : colors.forestDark;
+  // ProfileScreen's cover photo is meant to bleed full-width behind the
+  // status bar rather than starting below it — exclude the top safe-area
+  // edge here specifically so ProfileScreen can extend into that space
+  // itself (it adds insets.top back in for its own back button/icons).
+  const bleedTopScreen = screen === 'profile';
 
   const renderScreen = () => {
     switch (screen) {
@@ -210,7 +245,16 @@ function AppShell() {
           />
         );
       case 'prices':
-        return <PriceDashboardScreen localDb={db.localDb} />;
+        return <PriceDashboardScreen localDb={db.localDb} onViewTrend={handleViewPriceTrend} />;
+      case 'price-trend':
+        return (
+          <ProductPriceTrendScreen
+            localDb={db.localDb}
+            params={priceTrendParams}
+            networkStatus={networkStatus}
+            onBack={() => setScreen('prices')}
+          />
+        );
       case 'chat':
         return (
           <ChatScreen
@@ -259,6 +303,8 @@ function AppShell() {
             isSyncing={db.isSyncing}
             syncData={wrappedSyncData}
             handleResetAll={db.handleResetAll}
+            isGuest={auth.isGuest}
+            onLoginPress={() => openAuthScreen('login')}
           />
         );
       case 'signup':
@@ -321,8 +367,11 @@ function AppShell() {
 
   return (
     <SafeAreaProvider>
-      <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
-        <StatusBar style="light" />
+      <SafeAreaView
+        style={[styles.safeArea, { backgroundColor: topSafeAreaColor }]}
+        edges={bleedTopScreen ? ['left', 'right'] : ['top', 'left', 'right']}
+      >
+        <StatusBar style={lightTopScreen ? 'dark' : 'light'} />
         <KeyboardAvoidingView
           style={styles.keyboardWrap}
           behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
@@ -350,7 +399,7 @@ function AppShell() {
 
         <View style={styles.body}>{db.hydrated && auth.hydrated ? renderScreen() : null}</View>
 
-        {!chromeHidden && <BottomNav screen={screen} onNavigate={handleBottomNavigate} />}
+        {!chromeHidden && !keyboardVisible && <BottomNav screen={screen} onNavigate={handleBottomNavigate} />}
 
         <ProfileSetupPrompt
           visible={profileSetupVisible}

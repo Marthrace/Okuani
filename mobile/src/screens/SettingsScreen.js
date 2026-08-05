@@ -19,6 +19,8 @@ export default function SettingsScreen({
   isSyncing,
   syncData,
   handleResetAll,
+  isGuest,
+  onLoginPress,
 }) {
   const { colors, mode, setMode } = useTheme();
   const styles = getStyles(colors);
@@ -107,11 +109,18 @@ export default function SettingsScreen({
                 <Ionicons name="sync-outline" size={14} color="#fff" />
                 <Text style={styles.primaryBtnText}>Force Trigger Sync</Text>
               </Pressable>
-              <Pressable style={styles.dangerBtn} onPress={confirmReset}>
+              <Pressable
+                style={[styles.dangerBtn, isGuest && styles.btnDisabled]}
+                onPress={confirmReset}
+                disabled={isGuest}
+              >
                 <Ionicons name="trash-outline" size={14} color={colors.danger} />
                 <Text style={styles.dangerBtnText}>Clear DBs</Text>
               </Pressable>
             </View>
+            {isGuest && (
+              <Text style={styles.guestNote}>Log in to reset the shared server database.</Text>
+            )}
           </View>
 
           <View style={styles.card}>
@@ -124,20 +133,28 @@ export default function SettingsScreen({
                 {serverOnline ? 'Connected' : 'Offline'}
               </Text>
             </View>
-            <View style={styles.statRow}>
-              <View style={styles.statCard}>
-                <Text style={styles.statNum}>{serverDbState.listings.filter((l) => !l.deleted).length}</Text>
-                <Text style={styles.statLbl}>Listings</Text>
+            {isGuest ? (
+              <Pressable onPress={onLoginPress}>
+                <Text style={styles.guestNote}>
+                  Log in to view the server database monitor (it shows private message content, so it now requires an authenticated session).
+                </Text>
+              </Pressable>
+            ) : (
+              <View style={styles.statRow}>
+                <View style={styles.statCard}>
+                  <Text style={styles.statNum}>{serverDbState.listings.filter((l) => !l.deleted).length}</Text>
+                  <Text style={styles.statLbl}>Listings</Text>
+                </View>
+                <View style={styles.statCard}>
+                  <Text style={styles.statNum}>{serverDbState.messages.length}</Text>
+                  <Text style={styles.statLbl}>Messages</Text>
+                </View>
+                <View style={styles.statCard}>
+                  <Text style={styles.statNum}>{serverDbState.prices.length}</Text>
+                  <Text style={styles.statLbl}>Price Feeds</Text>
+                </View>
               </View>
-              <View style={styles.statCard}>
-                <Text style={styles.statNum}>{serverDbState.messages.length}</Text>
-                <Text style={styles.statLbl}>Messages</Text>
-              </View>
-              <View style={styles.statCard}>
-                <Text style={styles.statNum}>{serverDbState.prices.length}</Text>
-                <Text style={styles.statLbl}>Price Feeds</Text>
-              </View>
-            </View>
+            )}
           </View>
 
           <Text style={styles.sectionTitle}>Sync Engine Live Telemetry</Text>
@@ -220,6 +237,7 @@ const getStyles = (colors) =>
       paddingVertical: SPACING.sm + 2,
     },
     dangerBtnText: { color: colors.danger, fontWeight: '700', fontSize: 12 },
+    guestNote: { fontSize: 11, color: colors.textMuted, lineHeight: 15 },
     serverStatus: { fontSize: 10, fontWeight: '700' },
     statRow: { flexDirection: 'row', gap: 10 },
     statCard: { flex: 1, backgroundColor: colors.primarySoft, borderRadius: RADIUS.md, paddingVertical: SPACING.sm + 2, alignItems: 'center' },

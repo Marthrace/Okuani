@@ -111,7 +111,7 @@ export default function ChatScreen({ localDb, setLocalDb, chatRecipient, network
                   <Ionicons
                     name={item.synced ? 'checkmark-done' : 'cloud-offline-outline'}
                     size={10}
-                    color={isSent ? '#DCF5E3' : colors.textMuted}
+                    color={isSent ? '#CFE3D6' : colors.textMuted}
                   />
                 )}
               </View>
@@ -138,7 +138,7 @@ export default function ChatScreen({ localDb, setLocalDb, chatRecipient, network
 
 const getStyles = (colors) =>
   StyleSheet.create({
-  container: { flex: 1 },
+  container: { flex: 1, backgroundColor: colors.bg },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -173,7 +173,7 @@ const getStyles = (colors) =>
   bubbleTextReceived: { color: colors.text, fontSize: 13 },
   metaRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 4, alignSelf: 'flex-end' },
   metaText: { fontSize: 9, color: colors.textMuted },
-  metaTextSent: { fontSize: 9, color: '#DCF5E3' },
+  metaTextSent: { fontSize: 9, color: '#CFE3D6' },
   inputArea: {
     flexDirection: 'row',
     alignItems: 'center',

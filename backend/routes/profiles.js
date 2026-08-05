@@ -1,17 +1,14 @@
+
 const express = require('express');
 const crypto = require('crypto');
-const fs = require('fs');
-const path = require('path');
 const requireAuth = require('../middleware/requireAuth');
+const { saveImageFile, deleteImageFile } = require('../utils/imageUpload');
 
 const PHONE_CODE_TTL_MS = 1000 * 60 * 5; // 5 minutes
-const MAX_PHOTO_BYTES = 5 * 1024 * 1024; // 5MB
-const MIME_EXT = {
-  'image/jpeg': 'jpg',
-  'image/jpg': 'jpg',
-  'image/png': 'png',
-  'image/webp': 'webp',
-  'image/gif': 'gif',
+const PHOTO_SLOT_COLUMN = {
+  avatar: 'avatar_path',
+  cover: 'cover_path',
+  id: 'id_photo_path',
 };
 
 function makeId(prefix) {
@@ -159,13 +156,26 @@ module.exports = function createProfilesRouter(getDb, uploadsDir) {
     }
 
     try {
-      if (updates.includes('email') && req.body.email) {
-        const conflict = await db.get('SELECT id FROM users WHERE email = ? AND id != ?', [req.body.email, req.user.id]);
-        if (conflict) return res.status(409).json({ error: 'Email already in use by another account' });
+      // An empty string is a legitimate "clear my email/phone" request, but
+      // it must be stored as NULL, not '' — the users.email/phone UNIQUE
+      // constraints exempt NULL from collisions but not '', so two users
+      // clearing their phone back to back would otherwise both bypass the
+      // conflict check here and then fail with a raw constraint error below.
+      if (updates.includes('email')) {
+        if (req.body.email) {
+          const conflict = await db.get('SELECT id FROM users WHERE email = ? AND id != ?', [req.body.email, req.user.id]);
+          if (conflict) return res.status(409).json({ error: 'Email already in use by another account' });
+        } else {
+          req.body.email = null;
+        }
       }
-      if (updates.includes('phone') && req.body.phone) {
-        const conflict = await db.get('SELECT id FROM users WHERE phone = ? AND id != ?', [req.body.phone, req.user.id]);
-        if (conflict) return res.status(409).json({ error: 'Phone already in use by another account' });
+      if (updates.includes('phone')) {
+        if (req.body.phone) {
+          const conflict = await db.get('SELECT id FROM users WHERE phone = ? AND id != ?', [req.body.phone, req.user.id]);
+          if (conflict) return res.status(409).json({ error: 'Phone already in use by another account' });
+        } else {
+          req.body.phone = null;
+        }
       }
 
       const setClause = updates.map((k) => `${k} = ?`).join(', ');
@@ -198,39 +208,33 @@ module.exports = function createProfilesRouter(getDb, uploadsDir) {
     const db = getDb();
     const { slot, imageBase64 } = req.body;
 
-    if (!['avatar', 'cover'].includes(slot)) {
-      return res.status(400).json({ error: 'slot must be avatar or cover' });
-    }
-    if (!imageBase64 || typeof imageBase64 !== 'string') {
-      return res.status(400).json({ error: 'imageBase64 is required' });
-    }
-    const match = imageBase64.match(/^data:(image\/[a-zA-Z0-9+.-]+);base64,(.+)$/);
-    if (!match || !MIME_EXT[match[1]]) {
-      return res.status(400).json({ error: 'Unsupported image format' });
-    }
-    const buffer = Buffer.from(match[2], 'base64');
-    if (buffer.length > MAX_PHOTO_BYTES) {
-      return res.status(400).json({ error: 'Image is too large (max 5MB)' });
+    const column = PHOTO_SLOT_COLUMN[slot];
+    if (!column) {
+      return res.status(400).json({ error: 'slot must be avatar, cover, or id' });
     }
 
     try {
-      const column = slot === 'avatar' ? 'avatar_path' : 'cover_path';
       const previous = await db.get(`SELECT ${column} as path FROM users WHERE id = ?`, [req.user.id]);
+      const publicPath = saveImageFile(uploadsDir, `${req.user.id}-${slot}`, imageBase64);
 
-      const filename = `${req.user.id}-${slot}-${Date.now()}.${MIME_EXT[match[1]]}`;
-      fs.writeFileSync(path.join(uploadsDir, filename), buffer);
-
-      await db.run(`UPDATE users SET ${column} = ? WHERE id = ?`, [`/uploads/${filename}`, req.user.id]);
+      await db.run(`UPDATE users SET ${column} = ? WHERE id = ?`, [publicPath, req.user.id]);
 
       if (previous?.path) {
-        fs.unlink(path.join(uploadsDir, path.basename(previous.path)), () => {});
+        deleteImageFile(uploadsDir, previous.path);
       }
 
       const user = await db.get('SELECT * FROM users WHERE id = ?', [req.user.id]);
       res.json({ user: serializeUser(user) });
     } catch (err) {
-      res.status(500).json({ error: 'Failed to save photo: ' + err.message });
+      res.status(400).json({ error: 'Failed to save photo: ' + err.message });
     }
+  });
+
+  // Self-scoped only — reads req.user (from the session token), never a
+  // route param, so a user can never fetch another user's ID photo. Kept out
+  // of serializeUser()/the public GET /:userId on purpose.
+  router.get('/me/id-photo', requireAuth(getDb), async (req, res) => {
+    res.json({ idPhotoUrl: req.user.id_photo_path || null });
   });
 
   router.post('/me/verify-phone/request', requireAuth(getDb), async (req, res) => {

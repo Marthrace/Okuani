@@ -4,7 +4,7 @@ import { buildApiUrl } from '../utils/api';
 
 const LOCAL_DB_KEY = 'okuani_local_db';
 const LAST_SYNC_KEY = 'okuani_last_sync';
-const EMPTY_DB = { listings: [], messages: [], prices: [] };
+const EMPTY_DB = { listings: [], messages: [], prices: [], priceSummary: [], priceSummaryFetchedAt: null };
 
 /**
  * On-device offline-first data store. Mirrors the sync/conflict-resolution
@@ -12,7 +12,7 @@ const EMPTY_DB = { listings: [], messages: [], prices: [] };
  * to AsyncStorage instead of localStorage as the on-device cache, and syncs
  * against the same backend /api/sync endpoint.
  */
-export function useOfflineDb(networkStatus, ownerId) {
+export function useOfflineDb(networkStatus, ownerId, authToken) {
   const [localDb, setLocalDb] = useState(EMPTY_DB);
   const [lastSyncTime, setLastSyncTime] = useState(0);
   const [hydrated, setHydrated] = useState(false);
@@ -55,13 +55,17 @@ export function useOfflineDb(networkStatus, ownerId) {
     AsyncStorage.setItem(LAST_SYNC_KEY, String(lastSyncTime)).catch(() => {});
   }, [lastSyncTime, hydrated]);
 
+  // Requires a logged-in session now (db-state exposes private message
+  // content), so a guest device just sees the monitor as unavailable.
   const fetchServerDb = useCallback(async () => {
-    if (networkStatus === 'offline') {
+    if (networkStatus === 'offline' || !authToken) {
       setServerOnline(false);
       return;
     }
     try {
-      const res = await fetch(buildApiUrl('/api/db-state'));
+      const res = await fetch(buildApiUrl('/api/db-state'), {
+        headers: { Authorization: `Bearer ${authToken}` },
+      });
       if (res.ok) {
         setServerDbState(await res.json());
         setServerOnline(true);
@@ -71,7 +75,7 @@ export function useOfflineDb(networkStatus, ownerId) {
     } catch (e) {
       setServerOnline(false);
     }
-  }, [networkStatus]);
+  }, [networkStatus, authToken]);
 
   useEffect(() => {
     fetchServerDb();
@@ -90,6 +94,18 @@ export function useOfflineDb(networkStatus, ownerId) {
       }
     } catch (e) {
       addLog('Failed to pre-fetch price dashboard. Offline cache will be used.', 'warning');
+    }
+
+    // Trend-annotated (current/previous/change/%/trend) rows for the Market
+    // Dashboard overview cards — cached the same offline-first way as `prices`.
+    try {
+      const res = await fetch(buildApiUrl('/api/prices/summary'));
+      if (res.ok) {
+        const data = await res.json();
+        setLocalDb((prev) => ({ ...prev, priceSummary: data, priceSummaryFetchedAt: Date.now() }));
+      }
+    } catch (e) {
+      addLog('Failed to pre-fetch price trend summary. Offline cache will be used.', 'warning');
     }
   }, [networkStatus, addLog]);
 
@@ -118,9 +134,12 @@ export function useOfflineDb(networkStatus, ownerId) {
     );
 
     try {
+      const syncHeaders = { 'Content-Type': 'application/json' };
+      if (authToken) syncHeaders.Authorization = `Bearer ${authToken}`;
+
       const response = await fetch(buildApiUrl('/api/sync'), {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: syncHeaders,
         body: JSON.stringify({
           lastSync: lastSyncRef.current,
           ownerId,
@@ -194,7 +213,7 @@ export function useOfflineDb(networkStatus, ownerId) {
     } finally {
       setIsSyncing(false);
     }
-  }, [networkStatus, addLog, fetchServerDb, ownerId]);
+  }, [networkStatus, addLog, fetchServerDb, ownerId, authToken]);
 
   // Auto-sync whenever the effective network status flips to online (including
   // the initial hydrate, so anything queued from a previous offline session pushes).
@@ -208,12 +227,15 @@ export function useOfflineDb(networkStatus, ownerId) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [networkStatus, hydrated]);
 
+  // Re-fetch prices whenever the device is (re)connected, not just once at
+  // hydration — previously this only listed `hydrated` as a dependency, so
+  // going online later (after hydrating offline) never refreshed prices.
   useEffect(() => {
     if (hydrated && networkStatus === 'online') {
       cachePricesLocally();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hydrated]);
+  }, [hydrated, networkStatus]);
 
   const handleResetAll = useCallback(async () => {
     await AsyncStorage.multiRemove([LOCAL_DB_KEY, LAST_SYNC_KEY]);
@@ -222,19 +244,30 @@ export function useOfflineDb(networkStatus, ownerId) {
     setSyncLogs([]);
     addLog('Local device database wiped clean.', 'info');
 
+    // Requires a logged-in session now — db-reset would otherwise let any
+    // anonymous caller wipe the shared demo database.
     if (networkStatus === 'online') {
+      if (!authToken) {
+        addLog('Log in to reset the shared server database.', 'warning');
+        return;
+      }
       try {
-        const res = await fetch(buildApiUrl('/api/db-reset'), { method: 'POST' });
+        const res = await fetch(buildApiUrl('/api/db-reset'), {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${authToken}` },
+        });
         if (res.ok) {
           addLog('Server database successfully reset and re-seeded.', 'success');
           fetchServerDb();
           cachePricesLocally();
+        } else {
+          addLog('Server rejected the reset request.', 'error');
         }
       } catch (e) {
         addLog('Failed to reach backend to reset server DB.', 'error');
       }
     }
-  }, [networkStatus, addLog, fetchServerDb, cachePricesLocally]);
+  }, [networkStatus, addLog, fetchServerDb, cachePricesLocally, authToken]);
 
   return {
     hydrated,

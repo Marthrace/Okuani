@@ -1,4 +1,5 @@
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../context/ThemeContext';
@@ -24,7 +25,8 @@ function usePriceStats(prices) {
 
 export default function WelcomeScreen({ onContinue, prices }) {
   const { colors } = useTheme();
-  const styles = getStyles(colors);
+  const insets = useSafeAreaInsets();
+  const styles = getStyles(colors, insets);
   const stats = usePriceStats(prices);
   const maxBar = Math.max(...stats.bars, 1);
 
@@ -138,7 +140,7 @@ export default function WelcomeScreen({ onContinue, prices }) {
   );
 }
 
-const getStyles = (colors) =>
+const getStyles = (colors, insets) =>
   StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.forestDark },
   scroll: { flex: 1 },
@@ -146,7 +148,10 @@ const getStyles = (colors) =>
     flexGrow: 1,
     paddingHorizontal: 22,
     paddingTop: 24,
-    paddingBottom: 28,
+    // No BottomNav sits below this screen, so this is the only thing padding
+    // for the bottom safe area (home indicator / Android gesture bar) —
+    // additive to the existing spacing, not a replacement of it.
+    paddingBottom: 28 + insets.bottom,
   },
   logoRow: {
     flexDirection: 'row',

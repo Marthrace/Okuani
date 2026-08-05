@@ -27,7 +27,16 @@ export default function FarmerPortalScreen({
 }) {
   const { colors } = useTheme();
   const styles = getStyles(colors);
-  const [farmerName, setFarmerName] = useState(defaultName || 'Kwame Boateng');
+  const [farmerName, setFarmerName] = useState(defaultName || '');
+
+  // The lazy useState initializer above only runs once at mount, so it never
+  // picks up a later identity change — e.g. logging out and continuing as
+  // guest left the previous account's name sitting in this field. Reset it
+  // whenever the signed-in identity actually changes (not on every render,
+  // and not while the user is just editing the field).
+  useEffect(() => {
+    setFarmerName(defaultName || '');
+  }, [defaultName]);
   const [crop, setCrop] = useState(CROPS[0]);
   const [location, setLocation] = useState(LOCATIONS[0]);
   const [qty, setQty] = useState('');
@@ -53,7 +62,7 @@ export default function FarmerPortalScreen({
   }, [auth?.token]);
 
   const handleAddListing = () => {
-    if (!crop || !qty || !price || !location) {
+    if (!farmerName.trim() || !crop || !qty || !price || !location) {
       Alert.alert('Missing details', 'Please fill in all listing details.');
       return;
     }
@@ -161,7 +170,7 @@ export default function FarmerPortalScreen({
 
             <View style={styles.heroTopRow}>
               <View>
-                <Text style={styles.heroGreeting}>Hello, {farmerName.split(' ')[0]}</Text>
+                <Text style={styles.heroGreeting}>Hello, {farmerName.trim() ? farmerName.split(' ')[0] : 'Farmer'}</Text>
                 <Text style={styles.heroSubtitle}>Manage your produce listings</Text>
               </View>
             </View>

@@ -56,6 +56,12 @@ module.exports = function createAuthRouter(getDb) {
       const token = await createSession(db, id);
       res.status(201).json({ token, user: { id, name, email: email || null, phone: phone || null } });
     } catch (err) {
+      // Two concurrent signups for the same email/phone can both pass the
+      // existence check above before either INSERT commits — the loser hits
+      // this UNIQUE constraint instead of the friendlier check earlier.
+      if (String(err.message).includes('UNIQUE constraint failed')) {
+        return res.status(409).json({ error: 'Email or phone already registered' });
+      }
       res.status(500).json({ error: 'Database error: ' + err.message });
     }
   });
@@ -204,6 +210,19 @@ module.exports = function createAuthRouter(getDb) {
 
     if (!guestId) {
       return res.status(400).json({ error: 'guestId is required' });
+    }
+
+    // guestId must actually be an unclaimed guest identifier (client-generated
+    // "guest-..." ids, never a real user's id) — otherwise, since owner_id
+    // leaks via the public GET /api/listings, any authenticated caller could
+    // pass a victim's real user id here and have that victim's listings and
+    // message history reassigned to themselves.
+    if (!String(guestId).startsWith('guest-')) {
+      return res.status(400).json({ error: 'guestId must be a guest identifier' });
+    }
+    const claimedByUser = await db.get('SELECT id FROM users WHERE id = ?', [guestId]);
+    if (claimedByUser) {
+      return res.status(400).json({ error: 'guestId must be a guest identifier' });
     }
 
     try {

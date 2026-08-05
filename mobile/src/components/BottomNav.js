@@ -4,43 +4,26 @@ import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../context/ThemeContext';
 import { RADIUS } from '../utils/theme';
 
-// Side icons flank a floating circular action button, mirroring the
-// reference nav (home / list ... [center action] ... cart / profile)
-// instead of the previous 5-in-a-row labeled-pill layout.
-const SIDE_TABS = [
+const TABS = [
   { key: 'farmer', icon: 'home-outline', iconActive: 'home' },
   { key: 'prices', icon: 'stats-chart-outline', iconActive: 'stats-chart' },
   { key: 'buyer', icon: 'cart-outline', iconActive: 'cart' },
   { key: 'profile', icon: 'person-outline', iconActive: 'person' },
+  { key: 'settings', icon: 'settings-outline', iconActive: 'settings' },
 ];
-const CENTER_TAB = { key: 'settings', icon: 'settings-outline' };
 
 export default function BottomNav({ screen, onNavigate }) {
   const insets = useSafeAreaInsets();
   const { colors } = useTheme();
   const styles = getStyles(colors);
-  const leftTabs = SIDE_TABS.slice(0, 2);
-  const rightTabs = SIDE_TABS.slice(2);
 
   return (
     <View style={[styles.nav, { paddingBottom: 10 + insets.bottom }]}>
       <View style={styles.row}>
-        {leftTabs.map((tab) => (
-          <NavIcon key={tab.key} tab={tab} active={screen === tab.key} onNavigate={onNavigate} colors={colors} />
-        ))}
-        <View style={styles.centerSpacer} />
-        {rightTabs.map((tab) => (
+        {TABS.map((tab) => (
           <NavIcon key={tab.key} tab={tab} active={screen === tab.key} onNavigate={onNavigate} colors={colors} />
         ))}
       </View>
-
-      <Pressable
-        style={[styles.centerBtn, { bottom: 18 + insets.bottom }]}
-        onPress={() => onNavigate(CENTER_TAB.key)}
-        hitSlop={6}
-      >
-        <Ionicons name={CENTER_TAB.icon} size={22} color="#fff" />
-      </Pressable>
     </View>
   );
 }
@@ -86,25 +69,5 @@ const getStyles = (colors) =>
       height: 4,
       borderRadius: 2,
       backgroundColor: colors.refGreen,
-    },
-    centerSpacer: {
-      width: 56,
-    },
-    centerBtn: {
-      position: 'absolute',
-      alignSelf: 'center',
-      width: 52,
-      height: 52,
-      borderRadius: 26,
-      backgroundColor: colors.refGreen,
-      alignItems: 'center',
-      justifyContent: 'center',
-      borderWidth: 4,
-      borderColor: colors.card,
-      shadowColor: '#0F2A1C',
-      shadowOffset: { width: 0, height: 6 },
-      shadowOpacity: 0.2,
-      shadowRadius: 10,
-      elevation: 10,
     },
   });

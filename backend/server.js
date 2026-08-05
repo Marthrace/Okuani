@@ -7,6 +7,8 @@ const path = require('path');
 const fs = require('fs');
 const createAuthRouter = require('./routes/auth');
 const createProfilesRouter = require('./routes/profiles');
+const requireAuth = require('./middleware/requireAuth');
+const { saveImageFile, deleteImageFile } = require('./utils/imageUpload');
 
 const app = express();
 const PORT = Number(process.env.PORT || 5000);
@@ -15,7 +17,9 @@ const uploadsDir = path.join(__dirname, 'uploads');
 fs.mkdirSync(uploadsDir, { recursive: true });
 
 app.use(cors());
-app.use(express.json({ limit: '8mb' })); // profile photos are base64 JSON payloads, well over the 100kb default
+// Profile/ID photos and queued listing images are all base64 JSON payloads,
+// well over the 100kb default — a sync batch can carry several at once.
+app.use(express.json({ limit: '20mb' }));
 app.use('/uploads', express.static(uploadsDir));
 
 // Logger middleware
@@ -44,6 +48,61 @@ async function ensureColumn(db, table, column, ddlType) {
   if (!cols.some((c) => c.name === column)) {
     await db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${ddlType}`);
   }
+}
+
+// Deterministic PRNG (mulberry32) seeded from a string, so re-seeding the DB
+// (via /api/db-reset) regenerates the same-looking history every time rather
+// than a different random series on every restart.
+function seedFromString(str) {
+  let h = 1779033703 ^ str.length;
+  for (let i = 0; i < str.length; i++) {
+    h = Math.imul(h ^ str.charCodeAt(i), 3432918353);
+    h = (h << 13) | (h >>> 19);
+  }
+  return () => {
+    h = Math.imul(h ^ (h >>> 16), 2246822507);
+    h = Math.imul(h ^ (h >>> 13), 3266489909);
+    h ^= h >>> 16;
+    return (h >>> 0) / 4294967296;
+  };
+}
+
+// Backfills a trailing year of price points for one seeded market+crop
+// combo, as a random walk (with mild drift) that lands exactly on the known
+// "today" price so the live/current value matches what's already seeded.
+function generatePriceHistory(seedRow, { days = 365, intervalDays = 3 } = {}) {
+  const rand = seedFromString(`${seedRow.market_name}|${seedRow.crop}`);
+  const today = new Date(seedRow.date + 'T00:00:00Z');
+  const stepCount = Math.floor(days / intervalDays);
+  const minPrice = seedRow.price_per_kg * 0.65;
+  const maxPrice = seedRow.price_per_kg * 1.35;
+
+  // Walk forward from `stepCount` intervals ago up to today, then rescale so
+  // the final point equals seedRow.price_per_kg exactly.
+  const walk = [seedRow.price_per_kg];
+  let price = seedRow.price_per_kg;
+  for (let i = 1; i <= stepCount; i++) {
+    const pctSwing = (rand() - 0.5) * 0.08; // up to +/-4% per step
+    price = Math.min(maxPrice, Math.max(minPrice, price * (1 + pctSwing)));
+    walk.push(price);
+  }
+  walk.reverse(); // walk[0] is `stepCount` intervals ago, walk[last] is today
+  walk[walk.length - 1] = seedRow.price_per_kg;
+
+  const rows = [];
+  for (let i = 0; i < walk.length; i++) {
+    const date = new Date(today);
+    date.setUTCDate(date.getUTCDate() - (walk.length - 1 - i) * intervalDays);
+    rows.push({
+      market_name: seedRow.market_name,
+      region: seedRow.region,
+      crop: seedRow.crop,
+      price_per_kg: Math.round(walk[i] * 100) / 100,
+      date: date.toISOString().split('T')[0],
+      source: seedRow.source,
+    });
+  }
+  return rows;
 }
 
 async function initDb() {
@@ -137,6 +196,14 @@ async function initDb() {
   await ensureColumn(db, 'listings', 'owner_id', 'TEXT');
   await ensureColumn(db, 'messages', 'owner_id', 'TEXT');
 
+  // Product photo, added the same additive way. Populated by /api/sync when a
+  // queued listing carries an image_base64 payload (see the sync handler below).
+  await ensureColumn(db, 'listings', 'image_path', 'TEXT');
+
+  // Read/unread tracking for the seller notification badge. Only ever flipped
+  // 0 -> 1 by the receiving party (see the sync handler below).
+  await ensureColumn(db, 'messages', 'read', 'INTEGER DEFAULT 0');
+
   // Profile fields, added the same way for the same reason (users predates profiles).
   await ensureColumn(db, 'users', 'headline', 'TEXT');
   await ensureColumn(db, 'users', 'about', 'TEXT');
@@ -144,6 +211,7 @@ async function initDb() {
   await ensureColumn(db, 'users', 'cover_path', 'TEXT');
   await ensureColumn(db, 'users', 'phone_verified', 'INTEGER DEFAULT 0');
   await ensureColumn(db, 'users', 'id_verified', 'INTEGER DEFAULT 0');
+  await ensureColumn(db, 'users', 'id_photo_path', 'TEXT');
   await ensureColumn(db, 'users', 'location', 'TEXT');
   await ensureColumn(db, 'users', 'role', 'TEXT');
 
@@ -179,26 +247,40 @@ async function initDb() {
   const count = await db.get('SELECT COUNT(*) as count FROM market_prices');
   if (count.count === 0) {
     console.log('Seeding initial market price data...');
+    // Anchor the seed's "current" price on today's real date (not a fixed
+    // string) so the 7D/30D/etc. period filters always have data ending at
+    // "now", however far in the future the server happens to run.
+    const todayStr = new Date().toISOString().split('T')[0];
     const prices = [
-      { market_name: 'Makola Market', region: 'Greater Accra', crop: 'White Maize', price_per_kg: 8.50, date: '2026-07-20', source: 'Esoko Ghana' },
-      { market_name: 'Makola Market', region: 'Greater Accra', crop: 'Yam (Pona)', price_per_kg: 12.00, date: '2026-07-20', source: 'Esoko Ghana' },
-      { market_name: 'Makola Market', region: 'Greater Accra', crop: 'Cassava', price_per_kg: 4.50, date: '2026-07-20', source: 'Esoko Ghana' },
-      
-      { market_name: 'Central Market', region: 'Ashanti', crop: 'White Maize', price_per_kg: 7.80, date: '2026-07-20', source: 'Esoko Ghana' },
-      { market_name: 'Central Market', region: 'Ashanti', crop: 'Yam (Pona)', price_per_kg: 10.50, date: '2026-07-20', source: 'Esoko Ghana' },
-      { market_name: 'Central Market', region: 'Ashanti', crop: 'Plantain (Apem)', price_per_kg: 9.00, date: '2026-07-20', source: 'Esoko Ghana' },
-      
-      { market_name: 'Techiman Market', region: 'Bono East', crop: 'White Maize', price_per_kg: 6.20, date: '2026-07-20', source: 'MoFA' },
-      { market_name: 'Techiman Market', region: 'Bono East', crop: 'Yam (Pona)', price_per_kg: 8.00, date: '2026-07-20', source: 'MoFA' },
-      { market_name: 'Techiman Market', region: 'Bono East', crop: 'Cassava', price_per_kg: 3.20, date: '2026-07-20', source: 'MoFA' },
-      { market_name: 'Techiman Market', region: 'Bono East', crop: 'Plantain (Apem)', price_per_kg: 7.50, date: '2026-07-20', source: 'MoFA' },
-      
-      { market_name: 'Tamale Central Market', region: 'Northern', crop: 'White Maize', price_per_kg: 6.80, date: '2026-07-20', source: 'MoFA' },
-      { market_name: 'Tamale Central Market', region: 'Northern', crop: 'Yam (Pona)', price_per_kg: 9.00, date: '2026-07-20', source: 'MoFA' },
-      { market_name: 'Tamale Central Market', region: 'Northern', crop: 'Rice (Local)', price_per_kg: 11.50, date: '2026-07-20', source: 'MoFA' }
+      { market_name: 'Makola Market', region: 'Greater Accra', crop: 'White Maize', price_per_kg: 8.50, date: todayStr, source: 'Esoko Ghana' },
+      { market_name: 'Makola Market', region: 'Greater Accra', crop: 'Yam (Pona)', price_per_kg: 12.00, date: todayStr, source: 'Esoko Ghana' },
+      { market_name: 'Makola Market', region: 'Greater Accra', crop: 'Cassava', price_per_kg: 4.50, date: todayStr, source: 'Esoko Ghana' },
+
+      { market_name: 'Central Market', region: 'Ashanti', crop: 'White Maize', price_per_kg: 7.80, date: todayStr, source: 'Esoko Ghana' },
+      { market_name: 'Central Market', region: 'Ashanti', crop: 'Yam (Pona)', price_per_kg: 10.50, date: todayStr, source: 'Esoko Ghana' },
+      { market_name: 'Central Market', region: 'Ashanti', crop: 'Plantain (Apem)', price_per_kg: 9.00, date: todayStr, source: 'Esoko Ghana' },
+
+      { market_name: 'Techiman Market', region: 'Bono East', crop: 'White Maize', price_per_kg: 6.20, date: todayStr, source: 'MoFA' },
+      { market_name: 'Techiman Market', region: 'Bono East', crop: 'Yam (Pona)', price_per_kg: 8.00, date: todayStr, source: 'MoFA' },
+      { market_name: 'Techiman Market', region: 'Bono East', crop: 'Cassava', price_per_kg: 3.20, date: todayStr, source: 'MoFA' },
+      { market_name: 'Techiman Market', region: 'Bono East', crop: 'Plantain (Apem)', price_per_kg: 7.50, date: todayStr, source: 'MoFA' },
+
+      { market_name: 'Tamale Central Market', region: 'Northern', crop: 'White Maize', price_per_kg: 6.80, date: todayStr, source: 'MoFA' },
+      { market_name: 'Tamale Central Market', region: 'Northern', crop: 'Yam (Pona)', price_per_kg: 9.00, date: todayStr, source: 'MoFA' },
+      { market_name: 'Tamale Central Market', region: 'Northern', crop: 'Rice (Local)', price_per_kg: 11.50, date: todayStr, source: 'MoFA' }
     ];
 
+    // Each seed row above is treated as *today's* price. To power the Market
+    // Dashboard's price-trend charts (7D/30D/3M/6M/1Y) we also backfill a
+    // trailing year of history per market+crop as a seeded random walk that
+    // lands exactly on the known base price today — so trend charts have
+    // real DB rows to read instead of the frontend faking a series.
+    const historyRows = [];
     for (const p of prices) {
+      historyRows.push(...generatePriceHistory(p));
+    }
+
+    for (const p of historyRows) {
       await db.run(
         `INSERT INTO market_prices (market_name, region, crop, price_per_kg, date, source)
          VALUES (?, ?, ?, ?, ?, ?)`,
@@ -221,18 +303,173 @@ async function initDb() {
 }
 
 // REST endpoints
+
+// Trend/period helpers shared by /api/prices/summary and /api/prices/history.
+const PERIOD_DAYS = { '7d': 7, '30d': 30, '3m': 90, '6m': 180, '1y': 365 };
+
+// `change` is an optional fallback for when the previous price was 0 — the
+// percentage is mathematically undefined there, but the direction (free ->
+// priced) is still real and shouldn't be reported as "stable" just because
+// percentChange came back null.
+function classifyTrend(percentChange, change) {
+  if (percentChange == null) {
+    if (change == null || change === 0) return 'stable';
+    return change > 0 ? 'up' : 'down';
+  }
+  if (percentChange > 1) return 'up';
+  if (percentChange < -1) return 'down';
+  return 'stable';
+}
+
+// Only the most recent recorded price per (crop, market_name, region) — the
+// market_prices table now holds a full trailing-year history per combo, so
+// callers that just want "today's price list" (this endpoint, and the
+// Regional Price Feeds UI it feeds) must not see every historical row.
 app.get('/api/prices', async (req, res) => {
   try {
-    const prices = await db.all('SELECT * FROM market_prices ORDER BY crop, price_per_kg ASC');
+    const prices = await db.all(`
+      SELECT mp.* FROM market_prices mp
+      INNER JOIN (
+        SELECT crop, market_name, MAX(date) as max_date
+        FROM market_prices
+        GROUP BY crop, market_name
+      ) latest
+        ON mp.crop = latest.crop
+       AND mp.market_name = latest.market_name
+       AND mp.date = latest.max_date
+      ORDER BY mp.crop, mp.price_per_kg ASC
+    `);
     res.json(prices);
   } catch (err) {
     res.status(500).json({ error: 'Database error fetching prices: ' + err.message });
   }
 });
 
+// Latest vs. previous price, change amount/percentage, and trend direction
+// per (crop, market_name, region) — powers the Market Dashboard overview cards.
+app.get('/api/prices/summary', async (req, res) => {
+  try {
+    const rows = await db.all(
+      'SELECT * FROM market_prices ORDER BY crop, market_name, date DESC'
+    );
+
+    const groups = new Map();
+    for (const row of rows) {
+      const key = `${row.crop}|${row.market_name}`;
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(row);
+    }
+
+    const summary = [];
+    for (const groupRows of groups.values()) {
+      const [latest, previous] = groupRows;
+      const change = previous ? latest.price_per_kg - previous.price_per_kg : null;
+      const percentChange =
+        previous && previous.price_per_kg
+          ? (change / previous.price_per_kg) * 100
+          : null;
+
+      summary.push({
+        crop: latest.crop,
+        market_name: latest.market_name,
+        region: latest.region,
+        unit: 'kg',
+        current: latest.price_per_kg,
+        previous: previous ? previous.price_per_kg : null,
+        recordedAt: latest.date,
+        change: change != null ? Math.round(change * 100) / 100 : null,
+        percentChange: percentChange != null ? Math.round(percentChange * 100) / 100 : null,
+        trend: classifyTrend(percentChange, change),
+      });
+    }
+
+    summary.sort((a, b) => a.crop.localeCompare(b.crop) || a.current - b.current);
+    res.json(summary);
+  } catch (err) {
+    res.status(500).json({ error: 'Database error fetching price summary: ' + err.message });
+  }
+});
+
+// Historical price series for one crop (+ optional market) over a period,
+// for the Product Price Trend screen.
+app.get('/api/prices/history', async (req, res) => {
+  const { crop, period = '30d' } = req.query;
+  let { market_name: marketName } = req.query;
+
+  if (!crop) {
+    return res.status(400).json({ error: 'crop is required' });
+  }
+  const periodDays = PERIOD_DAYS[period];
+  if (!periodDays) {
+    return res.status(400).json({ error: `Invalid period. Use one of: ${Object.keys(PERIOD_DAYS).join(', ')}` });
+  }
+
+  try {
+    const marketRows = await db.all(
+      'SELECT DISTINCT market_name, region FROM market_prices WHERE crop = ? ORDER BY market_name',
+      [crop]
+    );
+    if (marketRows.length === 0) {
+      return res.status(404).json({ error: `No price data found for crop "${crop}"` });
+    }
+    if (!marketName) {
+      marketName = marketRows[0].market_name;
+    } else if (!marketRows.some((m) => m.market_name === marketName)) {
+      return res.status(404).json({ error: `No price data found for "${crop}" at market "${marketName}"` });
+    }
+
+    const cutoff = new Date();
+    cutoff.setUTCDate(cutoff.getUTCDate() - periodDays);
+    const cutoffStr = cutoff.toISOString().split('T')[0];
+
+    const points = await db.all(
+      `SELECT price_per_kg, date FROM market_prices
+       WHERE crop = ? AND market_name = ? AND date >= ?
+       ORDER BY date ASC`,
+      [crop, marketName, cutoffStr]
+    );
+
+    const allForMarket = await db.all(
+      `SELECT price_per_kg, date FROM market_prices
+       WHERE crop = ? AND market_name = ?
+       ORDER BY date DESC`,
+      [crop, marketName]
+    );
+
+    const current = allForMarket[0] ? allForMarket[0].price_per_kg : null;
+    const previous = allForMarket[1] ? allForMarket[1].price_per_kg : null;
+    const change = current != null && previous != null ? current - previous : null;
+    const percentChange = change != null && previous ? (change / previous) * 100 : null;
+
+    const prices = points.map((p) => p.price_per_kg);
+    const highest = prices.length ? Math.max(...prices) : null;
+    const lowest = prices.length ? Math.min(...prices) : null;
+    const region = marketRows.find((m) => m.market_name === marketName)?.region || null;
+
+    res.json({
+      crop,
+      market_name: marketName,
+      region,
+      unit: 'kg',
+      period,
+      points: points.map((p) => ({ date: p.date, price: p.price_per_kg })),
+      current,
+      previous,
+      change: change != null ? Math.round(change * 100) / 100 : null,
+      percentChange: percentChange != null ? Math.round(percentChange * 100) / 100 : null,
+      trend: classifyTrend(percentChange, change),
+      highest,
+      lowest,
+      availableMarkets: marketRows,
+    });
+  } catch (err) {
+    res.status(500).json({ error: 'Database error fetching price history: ' + err.message });
+  }
+});
+
 app.post('/api/prices/report', async (req, res) => {
   const { market_name, region, crop, price_per_kg, source } = req.body;
-  if (!market_name || !region || !crop || !price_per_kg) {
+  if (!market_name || !region || !crop || price_per_kg == null || Number.isNaN(Number(price_per_kg))) {
     return res.status(400).json({ error: 'Missing required fields' });
   }
   try {
@@ -259,7 +496,7 @@ app.get('/api/listings', async (req, res) => {
 });
 
 // Database state inspector
-app.get('/api/db-state', async (req, res) => {
+app.get('/api/db-state', requireAuth(() => db), async (req, res) => {
   try {
     const listings = await db.all('SELECT * FROM listings');
     const messages = await db.all('SELECT * FROM messages ORDER BY timestamp ASC');
@@ -270,8 +507,9 @@ app.get('/api/db-state', async (req, res) => {
   }
 });
 
-// Reset database endpoint (convenient for demonstrations)
-app.post('/api/db-reset', async (req, res) => {
+// Reset database endpoint (convenient for demonstrations) — requires a
+// logged-in session so an anonymous caller can't wipe the shared demo DB.
+app.post('/api/db-reset', requireAuth(() => db), async (req, res) => {
   try {
     await db.exec('DELETE FROM listings');
     await db.exec('DELETE FROM messages');
@@ -293,6 +531,29 @@ app.post('/api/sync', async (req, res) => {
     return res.status(400).json({ error: 'Invalid sync payload structure' });
   }
 
+  // Guests (client-generated "guest-..." ids, see mobile/simulator useAuth.js)
+  // have no server account, so their claimed ownerId is trusted at face value
+  // as a bearer capability, same as every other guest-scoped read in this app.
+  // A claimed ownerId that looks like a real registered user (not
+  // "guest-" prefixed) must be backed by a valid session for that same user —
+  // otherwise any caller could read/write another user's listings and
+  // messages just by naming their id (both are exposed via owner_id on the
+  // public GET /api/listings).
+  let effectiveOwnerId = null;
+  if (ownerId) {
+    if (String(ownerId).startsWith('guest-')) {
+      effectiveOwnerId = ownerId;
+    } else {
+      const authHeader = req.headers.authorization || '';
+      const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
+      const session = token ? await db.get('SELECT * FROM sessions WHERE token = ?', [token]) : null;
+      if (!session || session.expires_at < Date.now() || session.user_id !== ownerId) {
+        return res.status(401).json({ error: 'ownerId does not match an authenticated session' });
+      }
+      effectiveOwnerId = ownerId;
+    }
+  }
+
   try {
     await db.run('BEGIN TRANSACTION');
 
@@ -301,13 +562,39 @@ app.post('/api/sync', async (req, res) => {
       for (const clientListing of changes.listings) {
         const serverListing = await db.get('SELECT * FROM listings WHERE id = ?', [clientListing.id]);
 
+        // Only the listing's own owner (or nobody yet, for the two
+        // legacy/ownerless seed listings) may modify an existing listing —
+        // otherwise any caller could overwrite or soft-delete someone else's.
+        if (serverListing && serverListing.owner_id && serverListing.owner_id !== effectiveOwnerId) {
+          logs.push(`Listing ID ${clientListing.id} rejected: caller does not own this listing`);
+          continue;
+        }
+
+        // A queued listing may carry a fresh photo as a base64 data URI
+        // (image_base64) — decode+write it to a file here, same as the
+        // profile avatar/cover pattern, rather than storing raw base64 in
+        // SQL. Isolated in its own try/catch so one malformed image can't
+        // ROLLBACK the whole sync batch of otherwise-valid listings/messages.
+        let imagePath = serverListing ? serverListing.image_path : null;
+        if (clientListing.image_base64) {
+          try {
+            if (serverListing?.image_path) {
+              deleteImageFile(uploadsDir, serverListing.image_path);
+            }
+            imagePath = saveImageFile(uploadsDir, `listing-${clientListing.id}`, clientListing.image_base64);
+          } catch (imgErr) {
+            logs.push(`Listing ID ${clientListing.id} image rejected: ${imgErr.message}`);
+            imagePath = serverListing ? serverListing.image_path : null;
+          }
+        }
+
         if (serverListing) {
           // Conflict Resolution: Check timestamp
           if (clientListing.updated_at > serverListing.updated_at) {
             logs.push(`Listing ID ${clientListing.id} updated: Client changes merged (client: ${clientListing.updated_at} > server: ${serverListing.updated_at})`);
             await db.run(
               `UPDATE listings SET
-                farmer_name = ?, crop = ?, quantity = ?, unit = ?, price = ?, location = ?, phone = ?, deleted = ?, updated_at = ?, owner_id = ?
+                farmer_name = ?, crop = ?, quantity = ?, unit = ?, price = ?, location = ?, phone = ?, deleted = ?, updated_at = ?, owner_id = ?, image_path = ?
                WHERE id = ?`,
               [
                 clientListing.farmer_name,
@@ -319,7 +606,8 @@ app.post('/api/sync', async (req, res) => {
                 clientListing.phone,
                 clientListing.deleted ? 1 : 0,
                 clientListing.updated_at,
-                clientListing.owner_id || null,
+                effectiveOwnerId,
+                imagePath,
                 clientListing.id
               ]
             );
@@ -329,8 +617,8 @@ app.post('/api/sync', async (req, res) => {
         } else {
           logs.push(`Listing ID ${clientListing.id} created: Inserted client-side record`);
           await db.run(
-            `INSERT INTO listings (id, farmer_name, crop, quantity, unit, price, location, phone, deleted, updated_at, owner_id)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            `INSERT INTO listings (id, farmer_name, crop, quantity, unit, price, location, phone, deleted, updated_at, owner_id, image_path)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
               clientListing.id,
               clientListing.farmer_name,
@@ -342,7 +630,8 @@ app.post('/api/sync', async (req, res) => {
               clientListing.phone,
               clientListing.deleted ? 1 : 0,
               clientListing.updated_at,
-              clientListing.owner_id || null
+              effectiveOwnerId,
+              imagePath
             ]
           );
         }
@@ -354,19 +643,32 @@ app.post('/api/sync', async (req, res) => {
       for (const clientMsg of changes.messages) {
         const serverMsg = await db.get('SELECT * FROM messages WHERE id = ?', [clientMsg.id]);
         if (!serverMsg) {
+          // A new message may only be pushed by one of its participants —
+          // otherwise a caller could forge chat history for a conversation
+          // they aren't part of.
+          if (!effectiveOwnerId || (clientMsg.sender_id !== effectiveOwnerId && clientMsg.receiver_id !== effectiveOwnerId)) {
+            logs.push(`Message ID ${clientMsg.id} rejected: caller is not a participant`);
+            continue;
+          }
           logs.push(`Message ID ${clientMsg.id} synchronized`);
           await db.run(
-            `INSERT INTO messages (id, sender_id, receiver_id, content, timestamp, owner_id)
-             VALUES (?, ?, ?, ?, ?, ?)`,
+            `INSERT INTO messages (id, sender_id, receiver_id, content, timestamp, owner_id, read)
+             VALUES (?, ?, ?, ?, ?, ?, ?)`,
             [
               clientMsg.id,
               clientMsg.sender_id,
               clientMsg.receiver_id,
               clientMsg.content,
               clientMsg.timestamp,
-              clientMsg.owner_id || null
+              effectiveOwnerId,
+              clientMsg.read ? 1 : 0
             ]
           );
+        } else if (clientMsg.read && !serverMsg.read && effectiveOwnerId && effectiveOwnerId === serverMsg.receiver_id) {
+          // Only the receiving party may flip their own thread to read, and
+          // only the read flag is ever touched for an existing message row.
+          logs.push(`Message ID ${clientMsg.id} marked read`);
+          await db.run('UPDATE messages SET read = 1 WHERE id = ?', [clientMsg.id]);
         }
       }
     }
@@ -378,12 +680,12 @@ app.post('/api/sync', async (req, res) => {
     // However, to keep it simple, we retrieve all database updates since lastSync.
     // The client will merge them and overwrite matching IDs if client timestamp is older.
     const updatedListings = await db.all('SELECT * FROM listings WHERE updated_at > ?', [lastSync]);
-    const newMessages = ownerId
+    const newMessages = effectiveOwnerId
       ? await db.all(
           'SELECT * FROM messages WHERE timestamp > ? AND (owner_id = ? OR sender_id = ? OR receiver_id = ?)',
-          [lastSync, ownerId, ownerId, ownerId]
+          [lastSync, effectiveOwnerId, effectiveOwnerId, effectiveOwnerId]
         )
-      : await db.all('SELECT * FROM messages WHERE timestamp > ?', [lastSync]);
+      : [];
 
     res.json({
       serverTime,
@@ -394,7 +696,13 @@ app.post('/api/sync', async (req, res) => {
       logs
     });
   } catch (err) {
-    await db.run('ROLLBACK');
+    try {
+      await db.run('ROLLBACK');
+    } catch (rollbackErr) {
+      // Nothing to roll back if COMMIT already succeeded before this error
+      // was thrown (e.g. one of the post-commit reads below it failed) —
+      // swallow so this can never crash the whole process.
+    }
     res.status(500).json({ error: 'Sync transaction failed: ' + err.message });
   }
 });
