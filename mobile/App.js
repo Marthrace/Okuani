@@ -41,7 +41,7 @@ export default function App() {
 function AppShell() {
   const { colors } = useTheme();
   const styles = getStyles(colors);
-  const { networkStatus } = useNetworkStatus();
+  const { networkStatus, deviceOnline, simulateOffline, setSimulateOffline } = useNetworkStatus();
   // useOfflineDb needs auth.ownerId and useAuth needs db.setLocalDb (to re-tag
   // guest records on merge) — a ref breaks the circular hook dependency, same
   // "assign latest during render" pattern useOfflineDb already uses internally.
@@ -277,6 +277,17 @@ function AppShell() {
             onLogout={handleLogout}
             networkStatus={networkStatus}
             hasPendingChanges={hasPendingChanges}
+            deviceOnline={deviceOnline}
+            simulateOffline={simulateOffline}
+            setSimulateOffline={setSimulateOffline}
+            serverDbState={db.serverDbState}
+            serverOnline={db.serverOnline}
+            syncLogs={db.syncLogs}
+            isSyncing={db.isSyncing}
+            syncData={wrappedSyncData}
+            handleResetAll={db.handleResetAll}
+            isGuest={auth.isGuest}
+            onLoginPress={() => openAuthScreen('login')}
           />
         );
       case 'conversations':

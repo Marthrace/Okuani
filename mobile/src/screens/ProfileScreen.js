@@ -7,6 +7,7 @@ import {
   ScrollView,
   Share,
   StyleSheet,
+  Switch,
   Text,
   TextInput,
   View,
@@ -35,7 +36,25 @@ const THEME_OPTIONS = [
   { key: 'dark', label: 'Dark', icon: 'moon-outline' },
 ];
 
-export default function ProfileScreen({ auth, profileUserId, onBack, onLogout, networkStatus, hasPendingChanges }) {
+export default function ProfileScreen({
+  auth,
+  profileUserId,
+  onBack,
+  onLogout,
+  networkStatus,
+  hasPendingChanges,
+  deviceOnline,
+  simulateOffline,
+  setSimulateOffline,
+  serverDbState,
+  serverOnline,
+  syncLogs,
+  isSyncing,
+  syncData,
+  handleResetAll,
+  isGuest,
+  onLoginPress,
+}) {
   const { colors, mode, setMode } = useTheme();
   // The cover photo is meant to bleed edge-to-edge behind the status bar
   // (App.js excludes the top safe-area edge for this screen specifically),
@@ -195,6 +214,17 @@ export default function ProfileScreen({ auth, profileUserId, onBack, onLogout, n
   const handleShare = () => {
     const url = buildWebProfileUrl(profileUserId);
     Share.share({ message: `Check out my OKUANI profile: ${url}`, url });
+  };
+
+  const confirmResetAll = () => {
+    Alert.alert(
+      'Clear all data?',
+      'This wipes the on-device offline cache and, if online, resets the server database. Intended for demos/testing only.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Clear', style: 'destructive', onPress: handleResetAll },
+      ]
+    );
   };
 
   if (loading) {
@@ -537,6 +567,109 @@ export default function ProfileScreen({ auth, profileUserId, onBack, onLogout, n
       )}
 
       {isOwnProfile && (
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>Sync & Defense Console</Text>
+          <Text style={styles.mutedText}>
+            Toggle network connectivity to test the offline-first design. Add listings or send
+            messages while Offline, then switch back Online to watch auto-sync run.
+          </Text>
+
+          <View style={styles.rowBetween}>
+            <View style={styles.inlineRow}>
+              <Ionicons
+                name={networkStatus === 'online' ? 'wifi' : 'cloud-offline-outline'}
+                size={16}
+                color={networkStatus === 'online' ? colors.success : colors.danger}
+              />
+              <Text style={styles.cardLabel}>
+                {networkStatus === 'online' ? 'Network Connected' : 'Network Interrupted'}
+              </Text>
+            </View>
+            <Text style={styles.deviceStatus}>Device radio: {deviceOnline ? 'online' : 'offline'}</Text>
+          </View>
+
+          <View style={styles.rowBetween}>
+            <Text style={styles.toggleLabel}>Simulate Offline (demo toggle)</Text>
+            <Switch
+              value={simulateOffline}
+              onValueChange={setSimulateOffline}
+              trackColor={{ false: colors.border, true: colors.primaryLight }}
+              thumbColor={simulateOffline ? colors.primary : '#fff'}
+            />
+          </View>
+
+          <View style={styles.btnRow}>
+            <Pressable
+              style={[styles.syncBtn, (isSyncing || networkStatus === 'offline') && styles.btnDisabled]}
+              onPress={syncData}
+              disabled={isSyncing || networkStatus === 'offline'}
+            >
+              <Ionicons name="sync-outline" size={14} color="#fff" />
+              <Text style={styles.syncBtnText}>Force Trigger Sync</Text>
+            </Pressable>
+            <Pressable
+              style={[styles.dangerBtn, isGuest && styles.btnDisabled]}
+              onPress={confirmResetAll}
+              disabled={isGuest}
+            >
+              <Ionicons name="trash-outline" size={14} color={colors.danger} />
+              <Text style={styles.dangerBtnText}>Clear DBs</Text>
+            </Pressable>
+          </View>
+          {isGuest && <Text style={styles.mutedText}>Log in to reset the shared server database.</Text>}
+
+          <View style={styles.consoleDivider} />
+
+          <View style={styles.rowBetween}>
+            <View style={styles.inlineRow}>
+              <Ionicons name="server-outline" size={16} color={colors.success} />
+              <Text style={styles.cardLabel}>Server Database Monitor</Text>
+            </View>
+            <Text style={{ fontSize: 10, fontWeight: '700', color: serverOnline ? colors.success : colors.danger }}>
+              {serverOnline ? 'Connected' : 'Offline'}
+            </Text>
+          </View>
+          {isGuest ? (
+            <Pressable onPress={onLoginPress}>
+              <Text style={styles.mutedText}>
+                Log in to view the server database monitor (it shows private message content, so
+                it requires an authenticated session).
+              </Text>
+            </Pressable>
+          ) : (
+            <View style={styles.statRow}>
+              <View style={styles.statCard}>
+                <Text style={styles.statNum}>{serverDbState.listings.filter((l) => !l.deleted).length}</Text>
+                <Text style={styles.statLbl}>Listings</Text>
+              </View>
+              <View style={styles.statCard}>
+                <Text style={styles.statNum}>{serverDbState.messages.length}</Text>
+                <Text style={styles.statLbl}>Messages</Text>
+              </View>
+              <View style={styles.statCard}>
+                <Text style={styles.statNum}>{serverDbState.prices.length}</Text>
+                <Text style={styles.statLbl}>Price Feeds</Text>
+              </View>
+            </View>
+          )}
+
+          <View style={styles.consoleDivider} />
+
+          <Text style={styles.cardLabel}>Sync Engine Live Telemetry</Text>
+          {syncLogs.length === 0 ? (
+            <Text style={styles.mutedText}>No sync activity yet.</Text>
+          ) : (
+            syncLogs.slice(0, 12).map((log, i) => (
+              <View key={i} style={styles.logRow}>
+                <Text style={styles.logTime}>{log.time}</Text>
+                <Text style={[styles.logText, logColor(colors, log.type)]}>{log.text}</Text>
+              </View>
+            ))
+          )}
+        </View>
+      )}
+
+      {isOwnProfile && (
         <Pressable style={styles.logoutBtn} onPress={() => setLogoutModalVisible(true)}>
           <Ionicons name="log-out-outline" size={14} color={colors.danger} />
           <Text style={styles.logoutText}>Log Out</Text>
@@ -554,6 +687,13 @@ export default function ProfileScreen({ auth, profileUserId, onBack, onLogout, n
       />
     </ScrollView>
   );
+}
+
+function logColor(colors, type) {
+  if (type === 'success') return { color: colors.success };
+  if (type === 'warning') return { color: colors.warning };
+  if (type === 'error') return { color: colors.danger };
+  return { color: colors.text };
 }
 
 const AVATAR_SIZE = 76;
@@ -725,7 +865,47 @@ const getStyles = (colors) =>
   themeOptionActive: { backgroundColor: colors.refGreen, borderColor: colors.refGreen },
   themeOptionText: { fontSize: 13, fontWeight: '700', color: colors.textMuted },
   themeOptionTextActive: { color: '#fff' },
-  mutedText: { fontSize: 12, color: colors.textMuted },
+  mutedText: { fontSize: 12, color: colors.textMuted, lineHeight: 16 },
+
+  rowBetween: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  inlineRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  cardLabel: { fontWeight: '800', fontSize: 13, color: colors.text },
+  deviceStatus: { fontSize: 10, color: colors.textMuted },
+  toggleLabel: { fontSize: 12, color: colors.text, flex: 1 },
+  btnRow: { flexDirection: 'row', gap: 10 },
+  syncBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    backgroundColor: colors.primary,
+    borderRadius: RADIUS.pill,
+    paddingVertical: SPACING.sm + 2,
+  },
+  syncBtnText: { color: '#fff', fontWeight: '700', fontSize: 12 },
+  btnDisabled: { opacity: 0.5 },
+  dangerBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    borderWidth: 1,
+    borderColor: colors.danger,
+    borderRadius: RADIUS.pill,
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.sm + 2,
+  },
+  dangerBtnText: { color: colors.danger, fontWeight: '700', fontSize: 12 },
+  consoleDivider: { height: 1, backgroundColor: colors.border, marginVertical: 2 },
+  logRow: {
+    flexDirection: 'row',
+    gap: 8,
+    paddingVertical: 6,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  logTime: { fontSize: 10, color: colors.textMuted, width: 64 },
+  logText: { fontSize: 11, flex: 1, lineHeight: 15 },
 
   reviewsHeader: { gap: 6 },
   reviewsSummary: { flexDirection: 'row', alignItems: 'center', gap: 8 },

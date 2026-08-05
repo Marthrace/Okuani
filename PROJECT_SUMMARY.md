@@ -3,6 +3,11 @@
 ## Overview
 OKUANI is an offline-first agricultural marketplace prototype designed for rural environments where internet access may be intermittent. The project demonstrates how farmers can list produce, buyers can browse offers, and price information can remain accessible while offline. See [README.md](README.md) for how the `backend/`, `mobile/`, and `simulator/` folders map to the proposal in [docs/](docs/).
 
+For the full technical specification (architecture diagrams, data model, API reference, sync
+protocol) see [docs/PROPOSAL_DOCUMENTATION.md](docs/PROPOSAL_DOCUMENTATION.md). For an audited,
+evidence-backed comparison of what's actually implemented vs. the proposal see
+[docs/IMPLEMENTATION_REVIEW.md](docs/IMPLEMENTATION_REVIEW.md).
+
 ## What has been improved
 - Built out `mobile/` into the proposal's actual deliverable: farmer/buyer portals, price
   dashboard, messaging, and offline-first sync (AsyncStorage cache + `/api/sync`), with a
