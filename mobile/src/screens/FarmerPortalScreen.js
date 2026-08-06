@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, FlatList, Image, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import Select from '../components/Select';
+import SearchableSelect from '../components/SearchableSelect';
 import { useProfile } from '../hooks/useProfile';
 import { buildApiUrl } from '../utils/api';
 import { pickImageAsync } from '../utils/imagePicker';
-import { CROPS, LOCATIONS, UNITS } from '../utils/constants';
+import { CROPS, REGIONS, UNITS } from '../utils/constants';
 import { useTheme } from '../context/ThemeContext';
 import { RADIUS, SHADOW, SPACING } from '../utils/theme';
 
@@ -27,6 +29,11 @@ export default function FarmerPortalScreen({
 }) {
   const { colors } = useTheme();
   const styles = getStyles(colors);
+  // The hero is meant to bleed edge-to-edge behind the status bar (App.js
+  // excludes the top safe-area edge for this screen specifically), so its
+  // own top padding needs to account for that inset instead of relying on
+  // the outer SafeAreaView to reserve — and separately color — that space.
+  const insets = useSafeAreaInsets();
   const [farmerName, setFarmerName] = useState(defaultName || '');
 
   // The lazy useState initializer above only runs once at mount, so it never
@@ -38,14 +45,25 @@ export default function FarmerPortalScreen({
     setFarmerName(defaultName || '');
   }, [defaultName]);
   const [crop, setCrop] = useState(CROPS[0]);
-  const [location, setLocation] = useState(LOCATIONS[0]);
+  const [customCrop, setCustomCrop] = useState('');
+  const [region, setRegion] = useState('');
+  const [location, setLocation] = useState('');
   const [qty, setQty] = useState('');
   const [unit, setUnit] = useState(UNITS[0]);
   const [price, setPrice] = useState('');
   const [phone, setPhone] = useState('+233244123456');
   const [photoDataUri, setPhotoDataUri] = useState(null);
-  const [pickingPhoto, setPickingPhoto] = useState(false);
+  // Which source (camera/library) is currently loading — not just a single
+  // shared boolean, otherwise the Take Photo button (the first one checking
+  // it) always renders the spinner even when Upload Photo was the one tapped.
+  const [pickingSource, setPickingSource] = useState(null);
   const listRef = useRef(null);
+
+  // The header greeting always shows the signed-in account's own name — it
+  // must never react to the Farmer Name field below, which is a per-listing
+  // value (a farmer may list under different farm names on different
+  // listings) and is intentionally a completely separate piece of state.
+  const headerName = (defaultName && defaultName.trim()) || 'Farmer';
 
   const myListings = localDb.listings.filter((l) => !l.deleted && l.owner_id === ownerId);
 
@@ -62,19 +80,32 @@ export default function FarmerPortalScreen({
   }, [auth?.token]);
 
   const handleAddListing = () => {
-    if (!farmerName.trim() || !crop || !qty || !price || !location) {
-      Alert.alert('Missing details', 'Please fill in all listing details.');
+    const finalCrop = crop === 'Others' ? customCrop.trim() : crop;
+    const finalLocation = location.trim();
+
+    if (!farmerName.trim() || !finalCrop || !qty || !price || !region || !finalLocation) {
+      Alert.alert(
+        'Missing details',
+        crop === 'Others' && !finalCrop
+          ? 'Type the crop name, or pick one from the list.'
+          : !region
+          ? 'Select a region.'
+          : !finalLocation
+          ? 'Enter the specific location/town.'
+          : 'Please fill in all listing details.'
+      );
       return;
     }
 
     const newListing = {
       id: 'list-' + Date.now() + '-' + Math.random().toString(36).substring(2, 5),
       farmer_name: farmerName,
-      crop,
+      crop: finalCrop,
       quantity: parseFloat(qty),
       unit,
       price: parseFloat(price),
-      location,
+      region,
+      location: finalLocation,
       phone,
       deleted: 0,
       updated_at: Date.now(),
@@ -87,7 +118,8 @@ export default function FarmerPortalScreen({
     setQty('');
     setPrice('');
     setPhotoDataUri(null);
-    addLog(`Added ${crop} (${qty} ${unit}) to offline cache. Waiting for network to sync.`, 'info');
+    setCustomCrop('');
+    addLog(`Added ${finalCrop} (${qty} ${unit}) to offline cache. Waiting for network to sync.`, 'info');
 
     if (networkStatus === 'online') {
       setTimeout(syncData, 500);
@@ -95,7 +127,7 @@ export default function FarmerPortalScreen({
   };
 
   const handlePickPhoto = async (source) => {
-    setPickingPhoto(true);
+    setPickingSource(source);
     try {
       const result = await pickImageAsync({ source, aspect: [4, 3], quality: 0.5 });
       if (!result) return;
@@ -112,7 +144,7 @@ export default function FarmerPortalScreen({
       }
       setPhotoDataUri(result.dataUri);
     } finally {
-      setPickingPhoto(false);
+      setPickingSource(null);
     }
   };
 
@@ -129,71 +161,91 @@ export default function FarmerPortalScreen({
     }
   };
 
+  const confirmDeleteListing = (listing) => {
+    Alert.alert(
+      'Delete this listing?',
+      `Remove ${listing.crop} (${listing.quantity} ${listing.unit}) from your listings? This can't be undone.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Delete', style: 'destructive', onPress: () => handleDeleteListing(listing.id) },
+      ]
+    );
+  };
+
   return (
-    <FlatList
-      ref={listRef}
-      style={styles.list}
-      contentContainerStyle={styles.content}
-      data={myListings}
-      keyExtractor={(item) => item.id}
-      ListHeaderComponent={
-        <>
-          <View style={styles.hero}>
-            <View style={styles.heroBrandRow}>
-              <Text style={styles.heroBrand}>OKUANI</Text>
-              <View style={styles.heroIcons}>
-                <Pressable style={styles.heroIconChip} onPress={onIdentityPress} hitSlop={6}>
-                  <Ionicons name={auth?.isGuest ? 'person-outline' : 'person'} size={14} color="#fff" />
-                </Pressable>
-                {onNotificationsPress && (
-                  <Pressable style={styles.heroIconChip} onPress={onNotificationsPress} hitSlop={6}>
-                    <Ionicons name={unreadCount > 0 ? 'notifications' : 'notifications-outline'} size={14} color="#fff" />
-                    {unreadCount > 0 && (
-                      <View style={styles.heroBadge}>
-                        <Text style={styles.heroBadgeText}>{unreadCount}</Text>
-                      </View>
-                    )}
-                  </Pressable>
+    <View style={styles.screen}>
+      {/* Pinned above the scrollable list (not inside ListHeaderComponent),
+          so navigation stays put and only "List New Produce" downward
+          scrolls beneath it — matching where the user's finger actually
+          starts a scroll gesture on the form/listings below. */}
+      <View style={[styles.hero, { paddingTop: SPACING.xl + insets.top }]}>
+        <View style={styles.heroBrandRow}>
+          <Text style={styles.heroBrand}>OKUANI</Text>
+          <View style={styles.heroIcons}>
+            <Pressable style={styles.heroIconChip} onPress={onIdentityPress} hitSlop={6}>
+              <Ionicons name={auth?.isGuest ? 'person-outline' : 'person'} size={14} color="#fff" />
+            </Pressable>
+            {onNotificationsPress && (
+              <Pressable style={styles.heroIconChip} onPress={onNotificationsPress} hitSlop={6}>
+                <Ionicons name={unreadCount > 0 ? 'notifications' : 'notifications-outline'} size={14} color="#fff" />
+                {unreadCount > 0 && (
+                  <View style={styles.heroBadge}>
+                    <Text style={styles.heroBadgeText}>{unreadCount}</Text>
+                  </View>
                 )}
-                <View style={styles.heroIconChip}>
-                  <Ionicons
-                    name={networkStatus === 'online' ? 'wifi' : 'cloud-offline-outline'}
-                    size={14}
-                    color={networkStatus === 'online' ? '#fff' : '#FCA5A5'}
-                  />
-                </View>
-                <View style={styles.heroIconChip}>
-                  <Ionicons name={hasPendingChanges ? 'sync-outline' : 'checkmark-done'} size={14} color="#fff" />
-                </View>
-              </View>
-            </View>
-
-            <View style={styles.heroTopRow}>
-              <View>
-                <Text style={styles.heroGreeting}>Hello, {farmerName.trim() ? farmerName.split(' ')[0] : 'Farmer'}</Text>
-                <Text style={styles.heroSubtitle}>Manage your produce listings</Text>
-              </View>
-            </View>
-
-            <View style={styles.heroCtaRow}>
-              <Pressable
-                style={styles.heroCtaPrimary}
-                onPress={() => listRef.current?.scrollToOffset({ offset: 0, animated: true })}
-              >
-                <Text style={styles.heroCtaPrimaryText}>Add Listing</Text>
               </Pressable>
-              <Pressable style={styles.heroCtaSecondary} onPress={onSwitchRole}>
-                <Text style={styles.heroCtaSecondaryText}>Buyer View</Text>
-                <Ionicons name="cart-outline" size={14} color="#fff" />
-              </Pressable>
+            )}
+            <View style={styles.heroIconChip}>
+              <Ionicons
+                name={networkStatus === 'online' ? 'wifi' : 'cloud-offline-outline'}
+                size={14}
+                color={networkStatus === 'online' ? '#fff' : '#FCA5A5'}
+              />
+            </View>
+            <View style={styles.heroIconChip}>
+              <Ionicons name={hasPendingChanges ? 'sync-outline' : 'checkmark-done'} size={14} color="#fff" />
             </View>
           </View>
+        </View>
 
-          <View style={styles.formCard}>
+        <View style={styles.heroTopRow}>
+          <View>
+            <Text style={styles.heroGreeting}>Hello, {headerName.split(' ')[0]}</Text>
+            <Text style={styles.heroSubtitle}>Manage your produce listings</Text>
+          </View>
+        </View>
+
+        <View style={styles.heroCtaRow}>
+          <Pressable
+            style={styles.heroCtaPrimary}
+            onPress={() => listRef.current?.scrollToOffset({ offset: 0, animated: true })}
+          >
+            <Text style={styles.heroCtaPrimaryText}>Add Listing</Text>
+          </Pressable>
+          <Pressable style={styles.heroCtaSecondary} onPress={onSwitchRole}>
+            <Text style={styles.heroCtaSecondaryText}>Buyer View</Text>
+            <Ionicons name="cart-outline" size={14} color="#fff" />
+          </Pressable>
+        </View>
+      </View>
+
+      <FlatList
+        ref={listRef}
+        style={styles.list}
+        contentContainerStyle={styles.content}
+        data={myListings}
+        keyExtractor={(item) => item.id}
+        ListHeaderComponent={
+          <>
+            <View style={styles.formCard}>
             <Text style={styles.formTitle}>List New Produce</Text>
 
             <Text style={styles.label}>Farmer Name</Text>
             <TextInput style={styles.input} placeholder="Your name" value={farmerName} onChangeText={setFarmerName} />
+            <Text style={styles.hintText}>
+              Defaults to your profile name — change it if this listing sells under a different
+              farm/business name.
+            </Text>
 
             <Text style={styles.label}>Phone</Text>
             <TextInput
@@ -204,11 +256,33 @@ export default function FarmerPortalScreen({
               onChangeText={setPhone}
             />
 
-            <Text style={styles.label}>Crop Type</Text>
-            <Select selectedValue={crop} onValueChange={setCrop} items={CROPS} />
+            <Text style={styles.label}>Region</Text>
+            <SearchableSelect
+              selectedValue={region}
+              onValueChange={setRegion}
+              items={REGIONS}
+              placeholder="Search regions…"
+            />
 
             <Text style={styles.label}>Location</Text>
-            <Select selectedValue={location} onValueChange={setLocation} items={LOCATIONS} />
+            <TextInput
+              style={styles.input}
+              placeholder="e.g. Kumasi"
+              value={location}
+              onChangeText={setLocation}
+            />
+            <Text style={styles.hintText}>The specific town/area within the region above.</Text>
+
+            <Text style={styles.label}>Crop Type</Text>
+            <Select selectedValue={crop} onValueChange={setCrop} items={CROPS} />
+            {crop === 'Others' && (
+              <TextInput
+                style={[styles.input, styles.customFieldInput]}
+                placeholder="Type the crop name"
+                value={customCrop}
+                onChangeText={setCustomCrop}
+              />
+            )}
 
             <View style={styles.rowGrid}>
               <View style={styles.flexItem}>
@@ -246,8 +320,8 @@ export default function FarmerPortalScreen({
               </View>
             ) : (
               <View style={styles.photoBtnRow}>
-                <Pressable style={styles.photoBtn} onPress={() => handlePickPhoto('camera')} disabled={pickingPhoto}>
-                  {pickingPhoto ? (
+                <Pressable style={styles.photoBtn} onPress={() => handlePickPhoto('camera')} disabled={Boolean(pickingSource)}>
+                  {pickingSource === 'camera' ? (
                     <ActivityIndicator size="small" color={colors.refGreen} />
                   ) : (
                     <>
@@ -256,9 +330,15 @@ export default function FarmerPortalScreen({
                     </>
                   )}
                 </Pressable>
-                <Pressable style={styles.photoBtn} onPress={() => handlePickPhoto('library')} disabled={pickingPhoto}>
-                  <Ionicons name="image-outline" size={16} color={colors.refGreen} />
-                  <Text style={styles.photoBtnText}>Upload Photo</Text>
+                <Pressable style={styles.photoBtn} onPress={() => handlePickPhoto('library')} disabled={Boolean(pickingSource)}>
+                  {pickingSource === 'library' ? (
+                    <ActivityIndicator size="small" color={colors.refGreen} />
+                  ) : (
+                    <>
+                      <Ionicons name="image-outline" size={16} color={colors.refGreen} />
+                      <Text style={styles.photoBtnText}>Upload Photo</Text>
+                    </>
+                  )}
                 </Pressable>
               </View>
             )}
@@ -319,7 +399,7 @@ export default function FarmerPortalScreen({
           <View style={styles.rowBody}>
             <Text style={styles.rowTitle}>{item.crop}</Text>
             <Text style={styles.rowSubtitle}>
-              {item.quantity} {item.unit} · {item.location}
+              {item.quantity} {item.unit} · {item.location}{item.region ? `, ${item.region}` : ''}
             </Text>
           </View>
           <View style={styles.rowRight}>
@@ -327,7 +407,7 @@ export default function FarmerPortalScreen({
             {item.synced ? (
               <View style={[styles.statusPill, styles.statusPillSynced]}>
                 <Ionicons name="checkmark" size={10} color="#fff" />
-                <Text style={styles.statusPillText}>Synced</Text>
+                <Text style={styles.statusPillText}>Added</Text>
               </View>
             ) : (
               <View style={[styles.statusPill, styles.statusPillPending]}>
@@ -335,18 +415,20 @@ export default function FarmerPortalScreen({
                 <Text style={styles.statusPillText}>Pending</Text>
               </View>
             )}
-            <Pressable onPress={() => handleDeleteListing(item.id)} hitSlop={8} style={styles.rowDelete}>
+            <Pressable onPress={() => confirmDeleteListing(item)} hitSlop={8} style={styles.rowDelete}>
               <Ionicons name="trash-outline" size={14} color={colors.danger} />
             </Pressable>
           </View>
         </View>
       )}
-    />
+      />
+    </View>
   );
 }
 
 const getStyles = (colors) =>
   StyleSheet.create({
+  screen: { flex: 1, backgroundColor: colors.bg },
   list: { flex: 1, backgroundColor: colors.bg },
   content: { paddingBottom: 32 },
   hero: {
@@ -437,6 +519,8 @@ const getStyles = (colors) =>
     fontSize: 13,
     color: colors.text,
   },
+  hintText: { fontSize: 10, color: colors.textMuted, marginTop: 3 },
+  customFieldInput: { marginTop: 6 },
   rowGrid: { flexDirection: 'row', gap: 10 },
   flexItem: { flex: 1 },
   photoBtnRow: { flexDirection: 'row', gap: 10, marginTop: 2 },

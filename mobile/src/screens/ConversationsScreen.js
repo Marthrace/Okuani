@@ -68,10 +68,13 @@ export default function ConversationsScreen({ auth, localDb, ownerId, onOpenChat
   const conversations = buildConversations(contacts, localDb.messages, ownerId);
 
   const handleOpen = (conversation) => {
+    // No `phone` here — /me/contacts never returns one (only id/name/avatar),
+    // so there's nothing real to show. Faking it from the internal id was
+    // exactly what leaked "user-...-xxxxx" into the chat header as if it
+    // were a phone number.
     onOpenChat({
       owner_id: conversation.id,
-      farmer_name: conversation.name || conversation.id,
-      phone: conversation.id,
+      farmer_name: conversation.name || 'Unknown user',
     });
   };
 
@@ -112,7 +115,7 @@ export default function ConversationsScreen({ auth, localDb, ownerId, onOpenChat
               <View style={styles.rowBody}>
                 <View style={styles.rowTopLine}>
                   <Text style={styles.name} numberOfLines={1}>
-                    {item.name || item.id}
+                    {item.name || 'Unknown user'}
                   </Text>
                   <Text style={styles.time}>
                     {new Date(item.lastMsg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}

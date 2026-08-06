@@ -1,6 +1,49 @@
-export const CROPS = ['White Maize', 'Yam (Pona)', 'Cassava', 'Plantain (Apem)', 'Rice (Local)'];
+export const CROPS = ['White Maize', 'Yam (Pona)', 'Cassava', 'Plantain (Apem)', 'Rice (Local)', 'Others'];
 export const LOCATIONS = ['Techiman', 'Kumasi', 'Tamale', 'Accra'];
-export const UNITS = ['Bags', 'Tubers', 'Tons', 'Crates'];
+export const UNITS = ['Bag', 'Tuber', 'Ton', 'Crate', 'Others'];
+
+// Ghana's 16 official regions — the listing form's Region field. Fixed,
+// predefined vocabulary (unlike Location, which is free text), so a listing
+// always carries one of these exact strings, never an arbitrary variation.
+export const REGIONS = [
+  'Ashanti',
+  'Greater Accra',
+  'Eastern',
+  'Western',
+  'Central',
+  'Northern',
+  'Volta',
+  'Bono',
+  'Bono East',
+  'Ahafo',
+  'Oti',
+  'Savannah',
+  'North East',
+  'Upper East',
+  'Upper West',
+  'Western North',
+];
+
+// Listings created before unit labels were singularized (or still sitting
+// in an offline client cache from before that migration synced down) may
+// carry the old plural value — normalize at display time so any screen
+// rendering a unit shows the singular form regardless of how the record
+// was originally stored.
+const LEGACY_PLURAL_UNITS = { Bags: 'Bag', Tubers: 'Tuber', Tons: 'Ton', Crates: 'Crate' };
+export function singularUnit(unit) {
+  return LEGACY_PLURAL_UNITS[unit] || unit;
+}
+
+// Inverse of the above, keyed by the canonical singular form — used to
+// pluralize a *count* of units (e.g. "50 Bags"), as opposed to the "price
+// per unit" label, which always stays singular ("GHS 350 /Bag") regardless
+// of quantity. "Others" and any free-typed unit have no known plural, so
+// they're left unchanged.
+const UNIT_PLURALS = { Bag: 'Bags', Tuber: 'Tubers', Ton: 'Tons', Crate: 'Crates' };
+export function quantityUnit(unit, quantity) {
+  const singular = singularUnit(unit);
+  return quantity === 1 ? singular : UNIT_PLURALS[singular] || singular;
+}
 
 // Light palette modeled on the FarmWallet reference: deep forest-green hero
 // surfaces, white floating cards, a gold accent for badges/highlights, and

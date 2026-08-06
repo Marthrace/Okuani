@@ -15,6 +15,10 @@ export default function ChatScreen({ localDb, setLocalDb, chatRecipient, network
   // Falls back to phone/name only for the two ownerless seed listings.
   const chatRecipientId = chatRecipient ? chatRecipient.owner_id || chatRecipient.phone || chatRecipient.farmer_name : 'unknown';
   const recipientName = chatRecipient ? chatRecipient.farmer_name : 'Farmer';
+  // The header shows an actual phone number, never the internal routing id
+  // above (a guest/account id like "user-1786009369708-y92tfcn") — that id
+  // is only meaningful for matching messages to a thread, not for display.
+  const recipientPhone = chatRecipient?.phone || null;
 
   const messages = localDb.messages.filter(
     (m) =>
@@ -77,10 +81,12 @@ export default function ChatScreen({ localDb, setLocalDb, chatRecipient, network
         </Pressable>
         <View>
           <Text style={styles.recipientName}>{recipientName}</Text>
-          <View style={styles.inlineRow}>
-            <Ionicons name="call-outline" size={10} color={colors.textMuted} />
-            <Text style={styles.recipientPhone}>{chatRecipientId}</Text>
-          </View>
+          {recipientPhone && (
+            <View style={styles.inlineRow}>
+              <Ionicons name="call-outline" size={10} color={colors.textMuted} />
+              <Text style={styles.recipientPhone}>{recipientPhone}</Text>
+            </View>
+          )}
         </View>
         {chatRecipient?.owner_id && onViewProfile && (
           <Pressable style={styles.viewProfileBtn} onPress={() => onViewProfile(chatRecipient.owner_id)} hitSlop={8}>

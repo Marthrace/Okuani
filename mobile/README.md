@@ -53,7 +53,7 @@ mobile/
 The **Settings** tab (center button in the bottom nav) has a **Simulate Offline** switch (independent
 of your actual network) so you can:
 1. Add a listing or send a message while the switch is on ("offline" mode) — it's queued locally with a **Sync Queue** badge.
-2. Flip the switch back off — sync fires automatically and the badge turns into **Synced**.
+2. Flip the switch back off — sync fires automatically and the badge turns into **Added**.
 
 This mirrors the `../simulator`'s network-toggle demo but runs on-device. The same Settings screen
 also has an Appearance section for switching the app between light and dark mode.

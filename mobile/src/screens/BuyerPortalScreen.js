@@ -3,17 +3,18 @@ import { FlatList, Image, Pressable, StyleSheet, Text, TextInput, View } from 'r
 import { Ionicons } from '@expo/vector-icons';
 import Select from '../components/Select';
 import { buildApiUrl } from '../utils/api';
-import { LOCATIONS } from '../utils/constants';
+import { REGIONS, quantityUnit, singularUnit } from '../utils/constants';
+import { normalizeCrop, normalizeLocation } from '../utils/normalize';
 import { useTheme } from '../context/ThemeContext';
 import { RADIUS, SHADOW, SPACING } from '../utils/theme';
 
-const LOCATION_OPTIONS = [{ label: 'All Regions', value: 'All' }, ...LOCATIONS];
+const REGION_OPTIONS = [{ label: 'All Regions', value: 'All' }, ...REGIONS];
 
 export default function BuyerPortalScreen({ localDb, onSwitchRole, onMessageFarmer, onViewProfile }) {
   const { colors } = useTheme();
   const styles = getStyles(colors);
   const [searchQuery, setSearchQuery] = useState('');
-  const [filterLocation, setFilterLocation] = useState('All');
+  const [filterRegion, setFilterRegion] = useState('All');
   const [showMoreFilters, setShowMoreFilters] = useState(false);
   const [minPrice, setMinPrice] = useState('');
   const [maxPrice, setMaxPrice] = useState('');
@@ -26,13 +27,27 @@ export default function BuyerPortalScreen({ localDb, onSwitchRole, onMessageFarm
 
   const activeListings = localDb.listings.filter((l) => !l.deleted);
   const filteredListings = activeListings.filter((l) => {
-    const q = searchQuery.toLowerCase();
-    const matchesSearch = l.crop.toLowerCase().includes(q) || l.farmer_name.toLowerCase().includes(q);
-    const matchesLocation = filterLocation === 'All' || l.location === filterLocation;
+    const cropQuery = normalizeCrop(searchQuery);
+    const locationQuery = normalizeLocation(searchQuery);
+    // Crop and location matching both go through the same normalized keys
+    // used everywhere else (stock analysis, trends, ...) so casing/
+    // whitespace never causes a real match to be missed; farmer name search
+    // stays a plain case-insensitive substring check since it isn't an
+    // analytics key.
+    const matchesSearch =
+      normalizeCrop(l.crop).includes(cropQuery) ||
+      normalizeLocation(l.location).includes(locationQuery) ||
+      l.farmer_name.toLowerCase().includes(searchQuery.toLowerCase());
+    // Region is a fixed, predefined vocabulary selected from a dropdown on
+    // both ends, so an exact match is correct — no normalization needed.
+    // Older listings synced before the Region field existed have
+    // region: null and are simply excluded once a specific region is
+    // picked (see item 8, backward compatibility).
+    const matchesRegion = filterRegion === 'All' || l.region === filterRegion;
     const matchesMinPrice = Number.isNaN(minPriceNum) || l.price >= minPriceNum;
     const matchesMaxPrice = Number.isNaN(maxPriceNum) || l.price <= maxPriceNum;
     const matchesQuantity = Number.isNaN(minQuantityNum) || l.quantity >= minQuantityNum;
-    return matchesSearch && matchesLocation && matchesMinPrice && matchesMaxPrice && matchesQuantity;
+    return matchesSearch && matchesRegion && matchesMinPrice && matchesMaxPrice && matchesQuantity;
   });
 
   return (
@@ -56,7 +71,7 @@ export default function BuyerPortalScreen({ localDb, onSwitchRole, onMessageFarm
             <Ionicons name="search-outline" size={16} color={colors.textMuted} style={styles.searchIcon} />
             <TextInput
               style={styles.searchInput}
-              placeholder="Search crop or farmer..."
+              placeholder="Search crop, farmer, or location..."
               value={searchQuery}
               onChangeText={setSearchQuery}
             />
@@ -66,7 +81,7 @@ export default function BuyerPortalScreen({ localDb, onSwitchRole, onMessageFarm
             <Ionicons name="location-outline" size={14} color={colors.textMuted} />
             <Text style={styles.filterLabel}>Region:</Text>
             <View style={styles.pickerFlex}>
-              <Select selectedValue={filterLocation} onValueChange={setFilterLocation} items={LOCATION_OPTIONS} />
+              <Select selectedValue={filterRegion} onValueChange={setFilterRegion} items={REGION_OPTIONS} />
             </View>
           </View>
 
@@ -137,8 +152,17 @@ export default function BuyerPortalScreen({ localDb, onSwitchRole, onMessageFarm
             </View>
           )}
           <Text style={styles.cardTitle} numberOfLines={1}>{item.crop}</Text>
-          <Text style={styles.cardSubtitle} numberOfLines={1}>{item.location}</Text>
-          <Text style={styles.cardPrice}>GHS {item.price}<Text style={styles.cardUnit}> /{item.unit}</Text></Text>
+          <Text style={styles.cardSubtitle} numberOfLines={1}>
+            {item.location}{item.region ? `, ${item.region}` : ''}
+          </Text>
+          <Text style={styles.cardPrice}>GHS {item.price}<Text style={styles.cardUnit}> /{singularUnit(item.unit)}</Text></Text>
+          {item.quantity > 0 ? (
+            <Text style={styles.cardAvailability} numberOfLines={1}>
+              Available: {item.quantity} {quantityUnit(item.unit, item.quantity)}
+            </Text>
+          ) : (
+            <Text style={styles.cardOutOfStock}>Out of stock</Text>
+          )}
 
           <View style={styles.cardActions}>
             {item.owner_id && onViewProfile && (
@@ -265,6 +289,8 @@ const getStyles = (colors) =>
   cardSubtitle: { fontSize: 10, color: colors.textMuted, marginTop: 1, marginBottom: 4 },
   cardPrice: { fontSize: 13, fontWeight: '800', color: colors.refGreen },
   cardUnit: { fontSize: 10, fontWeight: '600', color: colors.textMuted },
+  cardAvailability: { fontSize: 10, fontWeight: '600', color: colors.textMuted, marginTop: 2 },
+  cardOutOfStock: { fontSize: 10, fontWeight: '800', color: colors.danger, marginTop: 2 },
   cardActions: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: SPACING.sm },
   profileBtn: {
     width: 28,

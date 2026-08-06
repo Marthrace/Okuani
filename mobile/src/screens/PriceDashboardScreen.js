@@ -2,6 +2,7 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../context/ThemeContext';
 import { RADIUS, SHADOW, SPACING } from '../utils/theme';
+import { computeStockAnalysis } from '../utils/stock';
 
 const FALLBACK_PRICES = [
   { market_name: 'Makola Market', region: 'Greater Accra', crop: 'White Maize', price_per_kg: 8.5 },
@@ -90,16 +91,16 @@ function StatTile({ tileKey, label, value, colors, styles }) {
   );
 }
 
-function BestPriceBar({ bar, maxPrice, colors, styles, onPress }) {
+function BestPriceBar({ bar, maxPrice, colors, styles }) {
   const widthPct = maxPrice > 0 ? Math.max(8, (bar.price / maxPrice) * 100) : 8;
   return (
-    <Pressable onPress={onPress} style={styles.barRow}>
+    <View style={styles.barRow}>
       <Text style={styles.barLabel} numberOfLines={1}>{bar.crop}</Text>
       <View style={styles.barTrack}>
         <View style={[styles.barFill, { width: `${widthPct}%`, backgroundColor: colors.primary }]} />
       </View>
       <Text style={styles.barValue}>GHS {bar.price.toFixed(2)}/kg</Text>
-    </Pressable>
+    </View>
   );
 }
 
@@ -134,6 +135,12 @@ export default function PriceDashboardScreen({ localDb, onViewTrend }) {
   const bestPrices = displaySummary.length > 0 ? buildBestPrices(displaySummary) : null;
   const maxBarPrice = bestPrices ? Math.max(...bestPrices.bars.map((b) => b.price)) : 0;
 
+  // Total quantity currently listed per crop, across every active listing
+  // this device knows about — grouped on the normalized crop key so
+  // "Tomatoes" / "tomatoes" / "TOMATOES" contribute to one total rather
+  // than showing up as separate rows.
+  const stockRows = computeStockAnalysis(localDb.listings);
+
   return (
     <ScrollView style={themedStyles.list} contentContainerStyle={themedStyles.content}>
       <View style={themedStyles.headerRow}>
@@ -154,13 +161,8 @@ export default function PriceDashboardScreen({ localDb, onViewTrend }) {
                 maxPrice={maxBarPrice}
                 colors={colors}
                 styles={themedStyles}
-                onPress={() => onViewTrend?.({ crop: bar.crop, market_name: bar.market_name, region: bar.region })}
               />
             ))}
-            <View style={themedStyles.hintRow}>
-              <Ionicons name="bulb-outline" size={12} color={colors.textMuted} />
-              <Text style={themedStyles.hintText}>Tap on any product to see market comparison and price trends</Text>
-            </View>
           </View>
 
           <View style={themedStyles.statGrid}>
@@ -199,6 +201,29 @@ export default function PriceDashboardScreen({ localDb, onViewTrend }) {
           </View>
         </View>
       )}
+
+      <View style={themedStyles.bestPricesSection}>
+        <Text style={themedStyles.sectionTitle}>Stock Availability</Text>
+        <Text style={themedStyles.sectionSubtitle}>
+          Total quantity currently listed by product, across active listings
+        </Text>
+        {stockRows.length === 0 ? (
+          <View style={themedStyles.emptyCard}>
+            <Text style={themedStyles.emptyText}>No active listings yet.</Text>
+          </View>
+        ) : (
+          <View style={themedStyles.chartCard}>
+            {stockRows.map((row) => (
+              <View key={`${row.cropKey}|${row.unit}`} style={themedStyles.stockRow}>
+                <Text style={themedStyles.stockRowCrop} numberOfLines={1}>{row.displayCrop}</Text>
+                <Text style={themedStyles.stockRowValue}>
+                  Total Available Stock: {row.totalQuantity} {row.unitLabel}
+                </Text>
+              </View>
+            ))}
+          </View>
+        )}
+      </View>
 
       <Text style={themedStyles.sectionTitle}>Regional Price Feeds</Text>
       {Object.keys(cropGrouped).length === 0 ? (
@@ -267,16 +292,14 @@ const getStyles = (colors) =>
   },
   barFill: { height: '100%', borderRadius: RADIUS.pill },
   barValue: { fontSize: 10, fontWeight: '700', color: colors.primaryDark, alignSelf: 'flex-end' },
-  hintRow: {
+  stockRow: {
     flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
-    gap: 6,
-    marginTop: 4,
-    paddingTop: SPACING.sm + 2,
-    borderTopWidth: 1,
-    borderTopColor: colors.border,
+    gap: 8,
   },
-  hintText: { fontSize: 10, color: colors.textMuted, flex: 1 },
+  stockRowCrop: { fontSize: 12, fontWeight: '800', color: colors.text, flex: 1 },
+  stockRowValue: { fontSize: 11, fontWeight: '700', color: colors.primaryDark },
   statGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',

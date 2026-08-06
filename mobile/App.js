@@ -55,6 +55,14 @@ function AppShell() {
   const [chatRecipient, setChatRecipient] = useState(null);
   const [priceTrendParams, setPriceTrendParams] = useState(null);
   const [smsAlert, setSmsAlert] = useState(null);
+
+  // Auto-dismiss the top banner (welcome-back greeting, new-message notice)
+  // after 30s instead of leaving it on screen until manually dismissed.
+  useEffect(() => {
+    if (!smsAlert) return;
+    const timer = setTimeout(() => setSmsAlert(null), 30000);
+    return () => clearTimeout(timer);
+  }, [smsAlert]);
   const [resetContext, setResetContext] = useState(null);
   const [preAuthScreen, setPreAuthScreen] = useState('welcome');
   const [viewedProfileId, setViewedProfileId] = useState(null);
@@ -194,17 +202,22 @@ function AppShell() {
   // have a plain light background right up to the status bar, so only those
   // two need dark status bar icons instead of the light ones used everywhere else.
   const lightTopScreen = screen === 'login' || screen === 'signup';
-  // The safe-area strip behind the status bar has no content of its own, so
-  // its color must exactly match whatever the screen's own top edge uses —
-  // otherwise the two show up as visibly different shades of green stacked
-  // on top of each other. FarmerPortalScreen's hero uses refGreen, not
-  // forestDark like the shared Header/other heroes, so it needs its own case.
-  const topSafeAreaColor = lightTopScreen ? colors.bg : screen === 'farmer' ? colors.refGreen : colors.forestDark;
-  // ProfileScreen's cover photo is meant to bleed full-width behind the
-  // status bar rather than starting below it — exclude the top safe-area
-  // edge here specifically so ProfileScreen can extend into that space
-  // itself (it adds insets.top back in for its own back button/icons).
-  const bleedTopScreen = screen === 'profile';
+  // ProfileScreen's cover photo and FarmerPortalScreen's hero are both meant
+  // to bleed full-width behind the status bar rather than starting below it
+  // — exclude the top safe-area edge here specifically so each screen can
+  // extend its own background into that space itself (they add insets.top
+  // back in for their own icons/back button/hero content). Previously
+  // FarmerPortalScreen relied on painting the safe-area strip a matching
+  // green instead — two separately-colored blocks that only look seamless
+  // if their colors and heights stay in exact sync, which is fragile (and,
+  // per the screen recording that flagged this, drifted out of sync).
+  // Bleeding is the same fix ProfileScreen already uses, so it can't drift.
+  const bleedTopScreen = screen === 'profile' || screen === 'farmer';
+  // The safe-area strip behind the status bar has no content of its own on
+  // every other screen, so its color must exactly match whatever that
+  // screen's own top edge uses — otherwise the two show up as visibly
+  // different colors stacked on top of each other.
+  const topSafeAreaColor = lightTopScreen ? colors.bg : colors.forestDark;
 
   const renderScreen = () => {
     switch (screen) {
