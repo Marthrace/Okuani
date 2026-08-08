@@ -1,8 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
-import { KeyboardAvoidingView, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { KeyboardAvoidingView, Platform, StyleSheet, View } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
-import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import Header from './src/components/Header';
@@ -15,12 +14,19 @@ import ProductPriceTrendScreen from './src/screens/ProductPriceTrendScreen';
 import ChatScreen from './src/screens/ChatScreen';
 import ProfileScreen from './src/screens/ProfileScreen';
 import ConversationsScreen from './src/screens/ConversationsScreen';
+import StockRequestsScreen from './src/screens/StockRequestsScreen';
+import StockRequestBoardScreen from './src/screens/StockRequestBoardScreen';
+import HelpScreen from './src/screens/HelpScreen';
+import AboutScreen from './src/screens/AboutScreen';
+import ReportUserScreen from './src/screens/ReportUserScreen';
 import SignUpScreen from './src/screens/SignUpScreen';
 import LoginScreen from './src/screens/LoginScreen';
 import ForgotPasswordRequestScreen from './src/screens/ForgotPasswordRequestScreen';
 import VerifyCodeScreen from './src/screens/VerifyCodeScreen';
 import ResetPasswordScreen from './src/screens/ResetPasswordScreen';
 import ProfileSetupPrompt from './src/components/ProfileSetupPrompt';
+import MarqueeBanner from './src/components/MarqueeBanner';
+import OfflineBanner from './src/components/OfflineBanner';
 import { useNetworkStatus } from './src/hooks/useNetworkStatus';
 import { useOfflineDb } from './src/hooks/useOfflineDb';
 import { useAuth } from './src/hooks/useAuth';
@@ -41,7 +47,14 @@ export default function App() {
 function AppShell() {
   const { colors } = useTheme();
   const styles = getStyles(colors);
-  const { networkStatus, deviceOnline, simulateOffline, setSimulateOffline } = useNetworkStatus();
+  // simulateOffline/setSimulateOffline power the "Simulate Offline Mode"
+  // toggle (tap the network icon in the Header / Farmer hero) — see
+  // useNetworkStatus.js. It's combined with real device connectivity into
+  // one networkStatus, so every screen/hook downstream (useOfflineDb, the
+  // API-layer fetch calls that all key off networkStatus) treats a manual
+  // simulated-offline toggle exactly like a real connectivity loss.
+  const { networkStatus, setSimulateOffline } = useNetworkStatus();
+  const onToggleOffline = () => setSimulateOffline((v) => !v);
   // useOfflineDb needs auth.ownerId and useAuth needs db.setLocalDb (to re-tag
   // guest records on merge) — a ref breaks the circular hook dependency, same
   // "assign latest during render" pattern useOfflineDb already uses internally.
@@ -53,14 +66,19 @@ function AppShell() {
 
   const [screen, setScreen] = useState('login');
   const [chatRecipient, setChatRecipient] = useState(null);
+  // Prefills the chat input right after "I Can Supply This" — the seller
+  // still reviews/edits/sends it themselves through the normal chat screen,
+  // this just saves retyping the request's own crop/quantity.
+  const [chatDraftMessage, setChatDraftMessage] = useState('');
   const [priceTrendParams, setPriceTrendParams] = useState(null);
   const [smsAlert, setSmsAlert] = useState(null);
 
-  // Auto-dismiss the top banner (welcome-back greeting, new-message notice)
-  // after 30s instead of leaving it on screen until manually dismissed.
+  // Auto-dismiss the top marquee (welcome-back greeting, new-message notice)
+  // after a few seconds — it's a transient notice, not something meant to
+  // sit on screen until manually closed.
   useEffect(() => {
     if (!smsAlert) return;
-    const timer = setTimeout(() => setSmsAlert(null), 30000);
+    const timer = setTimeout(() => setSmsAlert(null), 4500);
     return () => clearTimeout(timer);
   }, [smsAlert]);
   const [resetContext, setResetContext] = useState(null);
@@ -69,6 +87,11 @@ function AppShell() {
   const [preProfileScreen, setPreProfileScreen] = useState('welcome');
   const [profileSetupVisible, setProfileSetupVisible] = useState(false);
   const [preConversationsScreen, setPreConversationsScreen] = useState('welcome');
+  // Shared "where did we come from" for all three three-bar-menu
+  // destinations — they're reachable from wherever the menu itself is
+  // rendered (Header, FarmerPortalScreen's hero), so unlike the other
+  // preXScreen trackers above there's no single fixed origin to hardcode.
+  const [preMenuScreen, setPreMenuScreen] = useState('welcome');
 
   const openAuthScreen = (target) => {
     setPreAuthScreen(screen);
@@ -84,6 +107,11 @@ function AppShell() {
   const viewConversations = () => {
     setPreConversationsScreen(screen);
     setScreen('conversations');
+  };
+
+  const viewMenuScreen = (target) => {
+    setPreMenuScreen(screen);
+    setScreen(target);
   };
 
   // BottomNav's Profile tab must always land on YOUR OWN profile — a raw
@@ -156,14 +184,6 @@ function AppShell() {
     setScreen(AUTH_SCREENS.includes(preAuthScreen) ? 'welcome' : preAuthScreen);
   };
 
-  const handleIdentityPress = () => {
-    if (auth.isGuest) {
-      openAuthScreen('login');
-    } else {
-      viewProfile(auth.user.id);
-    }
-  };
-
   const handleProfileSetupComplete = () => {
     setProfileSetupVisible(false);
     viewProfile(auth.user.id);
@@ -171,6 +191,23 @@ function AppShell() {
 
   const handleMessageFarmer = (listing) => {
     setChatRecipient(listing);
+    setChatDraftMessage('');
+    setScreen('chat');
+  };
+
+  // "I Can Supply This" on a buyer request — chatRecipient is shaped like a
+  // listing (owner_id/farmer_name/phone) purely because that's what
+  // ChatScreen already expects; there's no real "phone" for a buyer here
+  // (same reasoning as ConversationsScreen's handleOpen — nothing to fake).
+  const handleSupplyRequest = (request) => {
+    setChatRecipient({
+      owner_id: request.buyerId,
+      farmer_name: request.buyerName || 'Buyer',
+      phone: null,
+    });
+    setChatDraftMessage(
+      `Hello, I can supply the ${request.quantity} ${request.unit} of ${request.crop} you requested.`
+    );
     setScreen('chat');
   };
 
@@ -187,7 +224,9 @@ function AppShell() {
   };
 
   const hasPendingChanges =
-    db.localDb.listings.some((l) => !l.synced) || db.localDb.messages.some((m) => !m.synced);
+    db.localDb.listings.some((l) => !l.synced) ||
+    db.localDb.messages.some((m) => !m.synced) ||
+    (db.localDb.priceReports || []).some((p) => !p.synced);
   const unreadCount = auth.ownerId
     ? db.localDb.messages.filter((m) => m.receiver_id === auth.ownerId && !m.read).length
     : 0;
@@ -235,6 +274,7 @@ function AppShell() {
             setLocalDb={db.setLocalDb}
             networkStatus={networkStatus}
             hasPendingChanges={hasPendingChanges}
+            onToggleOffline={onToggleOffline}
             addLog={db.addLog}
             syncData={wrappedSyncData}
             onSwitchRole={() => setScreen('buyer')}
@@ -242,9 +282,9 @@ function AppShell() {
             defaultName={auth.user?.name}
             auth={auth}
             onViewProfile={viewProfile}
-            onIdentityPress={handleIdentityPress}
             unreadCount={unreadCount}
             onNotificationsPress={viewConversations}
+            onViewStockBoard={() => setScreen('stock-board')}
           />
         );
       case 'buyer':
@@ -254,10 +294,52 @@ function AppShell() {
             onSwitchRole={() => setScreen('farmer')}
             onMessageFarmer={handleMessageFarmer}
             onViewProfile={viewProfile}
+            onRequestStock={() => setScreen('stock-requests')}
+          />
+        );
+      case 'stock-requests':
+        return (
+          <StockRequestsScreen
+            auth={auth}
+            onBack={() => setScreen('buyer')}
+            isGuest={auth.isGuest}
+            onLoginPress={() => openAuthScreen('login')}
+          />
+        );
+      case 'stock-board':
+        return (
+          <StockRequestBoardScreen
+            auth={auth}
+            localDb={db.localDb}
+            ownerId={auth.ownerId}
+            onBack={() => setScreen('farmer')}
+            onSupply={handleSupplyRequest}
+            isGuest={auth.isGuest}
+            onLoginPress={() => openAuthScreen('login')}
+          />
+        );
+      case 'help':
+        return <HelpScreen onBack={() => setScreen(preMenuScreen)} />;
+      case 'about':
+        return <AboutScreen onBack={() => setScreen(preMenuScreen)} />;
+      case 'report-user':
+        return (
+          <ReportUserScreen
+            auth={auth}
+            onBack={() => setScreen(preMenuScreen)}
+            isGuest={auth.isGuest}
+            onLoginPress={() => openAuthScreen('login')}
           />
         );
       case 'prices':
-        return <PriceDashboardScreen localDb={db.localDb} onViewTrend={handleViewPriceTrend} />;
+        return (
+          <PriceDashboardScreen
+            localDb={db.localDb}
+            onViewTrend={handleViewPriceTrend}
+            networkStatus={networkStatus}
+            submitPriceReport={db.submitPriceReport}
+          />
+        );
       case 'price-trend':
         return (
           <ProductPriceTrendScreen
@@ -273,6 +355,7 @@ function AppShell() {
             localDb={db.localDb}
             setLocalDb={db.setLocalDb}
             chatRecipient={chatRecipient}
+            initialMessage={chatDraftMessage}
             networkStatus={networkStatus}
             addLog={db.addLog}
             syncData={wrappedSyncData}
@@ -288,19 +371,11 @@ function AppShell() {
             profileUserId={viewedProfileId || auth.user?.id}
             onBack={() => setScreen(preProfileScreen)}
             onLogout={handleLogout}
-            networkStatus={networkStatus}
-            hasPendingChanges={hasPendingChanges}
-            deviceOnline={deviceOnline}
-            simulateOffline={simulateOffline}
-            setSimulateOffline={setSimulateOffline}
-            serverDbState={db.serverDbState}
-            serverOnline={db.serverOnline}
-            syncLogs={db.syncLogs}
-            isSyncing={db.isSyncing}
-            syncData={wrappedSyncData}
-            handleResetAll={db.handleResetAll}
             isGuest={auth.isGuest}
             onLoginPress={() => openAuthScreen('login')}
+            onHelp={() => viewMenuScreen('help')}
+            onAbout={() => viewMenuScreen('about')}
+            onReportUser={() => viewMenuScreen('report-user')}
           />
         );
       case 'conversations':
@@ -373,6 +448,13 @@ function AppShell() {
 
   return (
     <SafeAreaProvider>
+      {/* A true sibling of SafeAreaView, not a child — its own absolute
+          positioning is computed off its own useSafeAreaInsets() call, so
+          it floats over whatever screen is showing without ever reserving
+          layout space inside SafeAreaView's tree (mounting/unmounting it
+          never shifts the Header, body, or BottomNav below). */}
+      {smsAlert && <MarqueeBanner text={smsAlert} />}
+
       <SafeAreaView
         style={[styles.safeArea, { backgroundColor: topSafeAreaColor }]}
         edges={bleedTopScreen ? ['left', 'right'] : ['top', 'left', 'right']}
@@ -388,19 +470,22 @@ function AppShell() {
             hasPendingChanges={hasPendingChanges}
             unreadCount={unreadCount}
             onNotificationsPress={viewConversations}
+            onToggleOffline={onToggleOffline}
           />
         )}
 
-        {smsAlert && (
-          <View style={styles.smsBanner}>
-            <View style={styles.smsBannerRow}>
-              <Ionicons name="notifications-outline" size={14} color="#fff" />
-              <Text style={styles.smsBannerText}>{smsAlert}</Text>
-            </View>
-            <Pressable onPress={() => setSmsAlert(null)}>
-              <Text style={styles.smsDismiss}>Dismiss</Text>
-            </Pressable>
-          </View>
+        {/* A brief toast (not glued to the screen) shown on every screen
+            once logged in — see OfflineBanner.js for exactly when it
+            appears/clears. Positions itself off its own safe-area insets,
+            so unlike an in-flow element here it's never at the mercy of
+            farmer/profile's bleedTopScreen SafeAreaView exclusion. */}
+        {!chromeHidden && (
+          <OfflineBanner
+            networkStatus={networkStatus}
+            isSyncing={db.isSyncing}
+            syncProgress={db.syncProgress}
+            hasPendingChanges={hasPendingChanges}
+          />
         )}
 
         <View style={styles.body}>{db.hydrated && auth.hydrated ? renderScreen() : null}</View>
@@ -423,15 +508,4 @@ const getStyles = (colors) =>
     safeArea: { flex: 1, backgroundColor: colors.bg },
     keyboardWrap: { flex: 1 },
     body: { flex: 1 },
-    smsBanner: {
-      flexDirection: 'row',
-      justifyContent: 'space-between',
-      alignItems: 'center',
-      backgroundColor: colors.accent,
-      paddingHorizontal: 14,
-      paddingVertical: 8,
-    },
-    smsBannerRow: { flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 },
-    smsBannerText: { color: '#fff', fontSize: 11, flex: 1 },
-    smsDismiss: { color: '#fff', fontSize: 10, fontWeight: '700' },
   });

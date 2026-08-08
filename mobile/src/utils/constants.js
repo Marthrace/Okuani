@@ -1,6 +1,22 @@
 export const CROPS = ['White Maize', 'Yam (Pona)', 'Cassava', 'Plantain (Apem)', 'Rice (Local)', 'Others'];
 export const LOCATIONS = ['Techiman', 'Kumasi', 'Tamale', 'Accra'];
-export const UNITS = ['Bag', 'Tuber', 'Ton', 'Crate', 'Others'];
+export const UNITS = ['kg', 'Bag', 'Tuber', 'Ton', 'Crate', 'Others'];
+
+// Deterministic id for a farmer-submitted market price report, keyed by the
+// (market, region, crop) combo it's reporting a price for — NOT a random id
+// like a listing's. Two devices "editing the same price" while both offline
+// (Simulated Offline Mode's conflict-handling demo) naturally generate the
+// same id for the same combo, so useOfflineDb's sync merge collides them
+// into one last-write-wins conflict instead of two unrelated rows.
+export function priceReportId(market_name, region, crop) {
+  const slug = (s) =>
+    String(s || '')
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/(^-|-$)/g, '');
+  return `pricereport-${slug(market_name)}-${slug(region)}-${slug(crop)}`;
+}
 
 // Ghana's 16 official regions — the listing form's Region field. Fixed,
 // predefined vocabulary (unlike Location, which is free text), so a listing

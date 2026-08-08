@@ -10,7 +10,7 @@ import { RADIUS, SHADOW, SPACING } from '../utils/theme';
 
 const REGION_OPTIONS = [{ label: 'All Regions', value: 'All' }, ...REGIONS];
 
-export default function BuyerPortalScreen({ localDb, onSwitchRole, onMessageFarmer, onViewProfile }) {
+export default function BuyerPortalScreen({ localDb, onSwitchRole, onMessageFarmer, onViewProfile, onRequestStock }) {
   const { colors } = useTheme();
   const styles = getStyles(colors);
   const [searchQuery, setSearchQuery] = useState('');
@@ -51,93 +51,104 @@ export default function BuyerPortalScreen({ localDb, onSwitchRole, onMessageFarm
   });
 
   return (
-    <FlatList
-      style={styles.list}
-      contentContainerStyle={styles.content}
-      data={filteredListings}
-      keyExtractor={(item) => item.id}
-      numColumns={2}
-      columnWrapperStyle={styles.columnWrapper}
-      ListHeaderComponent={
-        <>
-          <View style={styles.headerRow}>
-            <Text style={styles.screenTitle}>Marketplace</Text>
-            <Pressable style={styles.outlineBtn} onPress={onSwitchRole}>
-              <Text style={styles.outlineBtnText}>Farmer View</Text>
-            </Pressable>
-          </View>
-
-          <View style={styles.searchWrap}>
-            <Ionicons name="search-outline" size={16} color={colors.textMuted} style={styles.searchIcon} />
-            <TextInput
-              style={styles.searchInput}
-              placeholder="Search crop, farmer, or location..."
-              value={searchQuery}
-              onChangeText={setSearchQuery}
-            />
-          </View>
-
-          <View style={styles.filterRow}>
-            <Ionicons name="location-outline" size={14} color={colors.textMuted} />
-            <Text style={styles.filterLabel}>Region:</Text>
-            <View style={styles.pickerFlex}>
-              <Select selectedValue={filterRegion} onValueChange={setFilterRegion} items={REGION_OPTIONS} />
-            </View>
-          </View>
-
-          <Pressable style={styles.moreFiltersToggle} onPress={() => setShowMoreFilters((v) => !v)}>
-            <Ionicons name="options-outline" size={14} color={colors.refGreen} />
-            <Text style={styles.moreFiltersToggleText}>
-              {showMoreFilters ? 'Hide price & quantity filters' : 'Price & quantity filters'}
-            </Text>
-            {hasMoreFiltersApplied && <View style={styles.filterActiveDot} />}
-            <Ionicons
-              name={showMoreFilters ? 'chevron-up' : 'chevron-down'}
-              size={14}
-              color={colors.textMuted}
-            />
+    <View style={styles.screen}>
+      {/* Pinned above the scrollable grid (not inside ListHeaderComponent),
+          so navigation stays put and only "Available Produce" downward
+          scrolls beneath it. */}
+      <View style={styles.fixedHeader}>
+        <View style={styles.headerRow}>
+          <Text style={styles.screenTitle}>Marketplace</Text>
+          <Pressable style={styles.outlineBtn} onPress={onSwitchRole}>
+            <Text style={styles.outlineBtnText}>Farmer View</Text>
           </Pressable>
+        </View>
 
-          {showMoreFilters && (
-            <View style={styles.moreFiltersPanel}>
-              <Text style={styles.filterLabel}>Price range (GHS)</Text>
-              <View style={styles.rangeRow}>
-                <TextInput
-                  style={[styles.rangeInput, styles.flexItem]}
-                  placeholder="Min"
-                  keyboardType="numeric"
-                  value={minPrice}
-                  onChangeText={setMinPrice}
-                />
-                <Text style={styles.rangeDash}>–</Text>
-                <TextInput
-                  style={[styles.rangeInput, styles.flexItem]}
-                  placeholder="Max"
-                  keyboardType="numeric"
-                  value={maxPrice}
-                  onChangeText={setMaxPrice}
-                />
-              </View>
-              <Text style={[styles.filterLabel, styles.minQtyLabel]}>Minimum quantity available</Text>
+        {onRequestStock && (
+          <Pressable style={styles.requestStockBtn} onPress={onRequestStock}>
+            <Ionicons name="megaphone-outline" size={15} color="#fff" />
+            <Text style={styles.requestStockBtnText}>Request Stock</Text>
+            <Text style={styles.requestStockBtnSubtext}>— tell sellers what you need</Text>
+          </Pressable>
+        )}
+
+        <View style={styles.searchWrap}>
+          <Ionicons name="search-outline" size={16} color={colors.textMuted} style={styles.searchIcon} />
+          <TextInput
+            style={styles.searchInput}
+            placeholder="Search crop, farmer, or location..."
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+          />
+        </View>
+
+        <View style={styles.filterRow}>
+          <Ionicons name="location-outline" size={14} color={colors.textMuted} />
+          <Text style={styles.filterLabel}>Region:</Text>
+          <View style={styles.pickerFlex}>
+            <Select selectedValue={filterRegion} onValueChange={setFilterRegion} items={REGION_OPTIONS} />
+          </View>
+        </View>
+
+        <Pressable style={styles.moreFiltersToggle} onPress={() => setShowMoreFilters((v) => !v)}>
+          <Ionicons name="options-outline" size={14} color={colors.refGreen} />
+          <Text style={styles.moreFiltersToggleText}>
+            {showMoreFilters ? 'Hide price & quantity filters' : 'Price & quantity filters'}
+          </Text>
+          {hasMoreFiltersApplied && <View style={styles.filterActiveDot} />}
+          <Ionicons
+            name={showMoreFilters ? 'chevron-up' : 'chevron-down'}
+            size={14}
+            color={colors.textMuted}
+          />
+        </Pressable>
+
+        {showMoreFilters && (
+          <View style={styles.moreFiltersPanel}>
+            <Text style={styles.filterLabel}>Price range (GHS)</Text>
+            <View style={styles.rangeRow}>
               <TextInput
-                style={styles.rangeInput}
-                placeholder="e.g. 50"
+                style={[styles.rangeInput, styles.flexItem]}
+                placeholder="Min"
                 keyboardType="numeric"
-                value={minQuantity}
-                onChangeText={setMinQuantity}
+                value={minPrice}
+                onChangeText={setMinPrice}
+              />
+              <Text style={styles.rangeDash}>–</Text>
+              <TextInput
+                style={[styles.rangeInput, styles.flexItem]}
+                placeholder="Max"
+                keyboardType="numeric"
+                value={maxPrice}
+                onChangeText={setMaxPrice}
               />
             </View>
-          )}
-
-          <View style={styles.sectionHeaderRow}>
-            <Text style={styles.sectionTitle}>Available Produce</Text>
-            <View style={styles.countPill}>
-              <Text style={styles.countPillText}>{filteredListings.length}</Text>
-            </View>
+            <Text style={[styles.filterLabel, styles.minQtyLabel]}>Minimum quantity available</Text>
+            <TextInput
+              style={styles.rangeInput}
+              placeholder="e.g. 50"
+              keyboardType="numeric"
+              value={minQuantity}
+              onChangeText={setMinQuantity}
+            />
           </View>
-        </>
-      }
-      ListEmptyComponent={
+        )}
+
+        <View style={styles.sectionHeaderRow}>
+          <Text style={styles.sectionTitle}>Available Produce</Text>
+          <View style={styles.countPill}>
+            <Text style={styles.countPillText}>{filteredListings.length}</Text>
+          </View>
+        </View>
+      </View>
+
+      <FlatList
+        style={styles.list}
+        contentContainerStyle={styles.content}
+        data={filteredListings}
+        keyExtractor={(item) => item.id}
+        numColumns={2}
+        columnWrapperStyle={styles.columnWrapper}
+        ListEmptyComponent={
         <View style={styles.emptyCard}>
           <Text style={styles.emptyText}>No crops found matching criteria.</Text>
         </View>
@@ -177,14 +188,17 @@ export default function BuyerPortalScreen({ localDb, onSwitchRole, onMessageFarm
           </View>
         </View>
       )}
-    />
+      />
+    </View>
   );
 }
 
 const getStyles = (colors) =>
   StyleSheet.create({
+  screen: { flex: 1, backgroundColor: colors.bg },
+  fixedHeader: { paddingHorizontal: SPACING.lg, paddingTop: SPACING.lg, backgroundColor: colors.bg },
   list: { flex: 1, backgroundColor: colors.bg },
-  content: { padding: SPACING.lg, paddingBottom: 32 },
+  content: { paddingHorizontal: SPACING.lg, paddingBottom: 32 },
   headerRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -200,6 +214,18 @@ const getStyles = (colors) =>
     paddingVertical: SPACING.xs + 2,
   },
   outlineBtnText: { fontSize: 11, color: colors.refGreen, fontWeight: '700' },
+  requestStockBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: colors.refGreen,
+    borderRadius: RADIUS.pill,
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.sm + 2,
+    marginBottom: SPACING.sm + 2,
+  },
+  requestStockBtnText: { color: '#fff', fontWeight: '800', fontSize: 12 },
+  requestStockBtnSubtext: { color: '#CFE3D6', fontSize: 10, flexShrink: 1 },
   searchWrap: { position: 'relative', justifyContent: 'center', marginBottom: SPACING.sm },
   searchIcon: { position: 'absolute', left: SPACING.md - 2, zIndex: 1 },
   searchInput: {

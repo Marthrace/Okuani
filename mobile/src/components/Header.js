@@ -1,20 +1,19 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../context/ThemeContext';
-import { RADIUS, SHADOW, SPACING } from '../utils/theme';
+import { RADIUS, SPACING } from '../utils/theme';
 
-// The identity pill (own profile/avatar shortcut) that used to live here was
-// removed: BottomNav's Profile tab is already the one dedicated entry point
-// to the Profile screen, and having a second avatar-style button in this
-// header (shown on nearly every screen) created a confusing duplicate.
-export default function Header({ networkStatus, hasPendingChanges, unreadCount, onNotificationsPress }) {
+// Neither the identity pill (own profile/avatar shortcut) nor the three-bar
+// menu live here — both are centralized on the Profile screen (BottomNav's
+// Profile tab is the one dedicated entry point to it), so this header, shown
+// on nearly every other screen, doesn't repeat them.
+export default function Header({ networkStatus, hasPendingChanges, unreadCount, onNotificationsPress, onToggleOffline }) {
   const { colors } = useTheme();
   const styles = getStyles(colors);
   return (
     <View style={styles.header}>
       <View>
         <Text style={styles.brand}>OKUANI</Text>
-        <Text style={styles.tagline}>OFFLINE-FIRST</Text>
       </View>
       <View style={styles.icons}>
         {onNotificationsPress && (
@@ -31,13 +30,25 @@ export default function Header({ networkStatus, hasPendingChanges, unreadCount, 
             )}
           </Pressable>
         )}
-        <View style={styles.iconChip}>
+        {/* Doubles as the "Simulate Offline Mode" toggle — tapping it flips
+            simulateOffline (see useNetworkStatus.js), so the demo control
+            lives right where its own status icon already is, reachable
+            without dev tools or emulator airplane mode. */}
+        <Pressable
+          style={styles.iconChip}
+          onPress={onToggleOffline}
+          disabled={!onToggleOffline}
+          hitSlop={6}
+          accessibilityRole="switch"
+          accessibilityLabel="Simulate offline mode"
+          accessibilityState={{ checked: networkStatus === 'offline' }}
+        >
           <Ionicons
             name={networkStatus === 'online' ? 'wifi' : 'cloud-offline-outline'}
             size={16}
             color={networkStatus === 'online' ? colors.primaryLight : '#FCA5A5'}
           />
-        </View>
+        </Pressable>
         <View style={styles.iconChip}>
           <Ionicons
             name={hasPendingChanges ? 'sync-outline' : 'checkmark-done'}
@@ -57,25 +68,21 @@ const getStyles = (colors) =>
     justifyContent: 'space-between',
     alignItems: 'center',
     backgroundColor: colors.forestDark,
-    paddingHorizontal: SPACING.lg,
-    paddingVertical: SPACING.md,
-    paddingBottom: SPACING.lg,
+    // Same shape as FarmerPortalScreen's hero (List New Produce) — matching
+    // padding proportions and radius, and no drop shadow (hero has none;
+    // this header's old heavy SHADOW.raised blurred/softened the curve
+    // enough that the rounded bottom edge barely read as rounded at all).
+    paddingHorizontal: SPACING.xl,
+    paddingTop: SPACING.xl,
+    paddingBottom: SPACING.xl,
     borderBottomLeftRadius: RADIUS.xl,
     borderBottomRightRadius: RADIUS.xl,
-    ...SHADOW.raised,
   },
   brand: {
     color: '#fff',
     fontWeight: '800',
     fontSize: 17,
     letterSpacing: 0.5,
-  },
-  tagline: {
-    color: colors.accent,
-    fontSize: 9,
-    fontWeight: '700',
-    letterSpacing: 1,
-    marginTop: 2,
   },
   icons: {
     flexDirection: 'row',

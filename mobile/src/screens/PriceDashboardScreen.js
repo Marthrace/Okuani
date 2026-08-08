@@ -1,8 +1,11 @@
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useState } from 'react';
+import { Alert, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../context/ThemeContext';
 import { RADIUS, SHADOW, SPACING } from '../utils/theme';
 import { computeStockAnalysis } from '../utils/stock';
+import { CROPS, REGIONS } from '../utils/constants';
+import Select from '../components/Select';
 
 const FALLBACK_PRICES = [
   { market_name: 'Makola Market', region: 'Greater Accra', crop: 'White Maize', price_per_kg: 8.5 },
@@ -104,9 +107,84 @@ function BestPriceBar({ bar, maxPrice, colors, styles }) {
   );
 }
 
-export default function PriceDashboardScreen({ localDb, onViewTrend }) {
+// Simulated Offline Mode action #3 (per the proposal's §5.3): submitting or
+// editing a market price. Works identically online or offline — the form
+// only ever calls submitPriceReport (useOfflineDb), which queues the
+// change locally and pushes it once reconnected, same as adding a listing.
+function ReportPriceModal({ visible, onClose, onSubmit }) {
+  const { colors } = useTheme();
+  const styles = getStyles(colors);
+  const [market_name, setMarketName] = useState('');
+  const [region, setRegion] = useState(REGIONS[0]);
+  const [crop, setCrop] = useState(CROPS[0]);
+  const [price, setPrice] = useState('');
+
+  const reset = () => {
+    setMarketName('');
+    setRegion(REGIONS[0]);
+    setCrop(CROPS[0]);
+    setPrice('');
+  };
+
+  const handleSubmit = () => {
+    if (!market_name.trim() || !price || Number.isNaN(Number(price))) {
+      Alert.alert('Missing details', 'Enter a market name and a valid price.');
+      return;
+    }
+    onSubmit({ market_name: market_name.trim(), region, crop, price_per_kg: price });
+    reset();
+    onClose();
+  };
+
+  return (
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+      <Pressable style={styles.modalBackdrop} onPress={onClose}>
+        <Pressable style={styles.modalSheet} onPress={() => {}}>
+          <View style={styles.modalHandle} />
+          <Text style={styles.modalTitle}>Report a Price</Text>
+          <Text style={styles.modalSubtitle}>
+            Submit today's price for a market/crop. Works offline — it queues and syncs automatically once reconnected.
+          </Text>
+
+          <Text style={styles.label}>Crop</Text>
+          <Select selectedValue={crop} onValueChange={setCrop} items={CROPS.filter((c) => c !== 'Others')} />
+
+          <Text style={styles.label}>Market name</Text>
+          <TextInput
+            style={styles.input}
+            value={market_name}
+            onChangeText={setMarketName}
+            placeholder="e.g. Techiman Market"
+            placeholderTextColor={colors.textMuted}
+          />
+
+          <Text style={styles.label}>Region</Text>
+          <Select selectedValue={region} onValueChange={setRegion} items={REGIONS} />
+
+          <Text style={styles.label}>Price per kg (GHS)</Text>
+          <TextInput
+            style={styles.input}
+            value={price}
+            onChangeText={setPrice}
+            placeholder="0.00"
+            placeholderTextColor={colors.textMuted}
+            keyboardType="decimal-pad"
+          />
+
+          <Pressable style={styles.modalSubmitBtn} onPress={handleSubmit}>
+            <Text style={styles.modalSubmitText}>Queue Price Update</Text>
+          </Pressable>
+        </Pressable>
+      </Pressable>
+    </Modal>
+  );
+}
+
+export default function PriceDashboardScreen({ localDb, onViewTrend, networkStatus, submitPriceReport }) {
   const { colors } = useTheme();
   const themedStyles = getStyles(colors);
+  const [reportModalVisible, setReportModalVisible] = useState(false);
+  const pendingPriceReports = (localDb.priceReports || []).filter((p) => !p.synced);
 
   // Trend-annotated rows (current/previous/change/%/trend), cached the same
   // offline-first way as localDb.prices. Falls back to plain current-price
@@ -147,6 +225,20 @@ export default function PriceDashboardScreen({ localDb, onViewTrend }) {
         <Text style={themedStyles.screenTitle}>Market Dashboard</Text>
         <Text style={themedStyles.cachedLabel}>Offline Cached</Text>
       </View>
+
+      {submitPriceReport && (
+        <Pressable style={themedStyles.reportPriceBtn} onPress={() => setReportModalVisible(true)}>
+          <Ionicons name="add-circle" size={16} color={colors.primaryDark} />
+          <Text style={themedStyles.reportPriceBtnText}>Report a Price</Text>
+          {pendingPriceReports.length > 0 && (
+            <View style={themedStyles.pendingBadge}>
+              <Text style={themedStyles.pendingBadgeText}>
+                {pendingPriceReports.length} pending sync
+              </Text>
+            </View>
+          )}
+        </Pressable>
+      )}
 
       {bestPrices && (
         <View style={themedStyles.bestPricesSection}>
@@ -251,6 +343,20 @@ export default function PriceDashboardScreen({ localDb, onViewTrend }) {
           </View>
         ))
       )}
+
+      <ReportPriceModal
+        visible={reportModalVisible}
+        onClose={() => setReportModalVisible(false)}
+        onSubmit={(report) => {
+          submitPriceReport?.(report);
+          Alert.alert(
+            networkStatus === 'offline' ? 'Queued offline' : 'Price submitted',
+            networkStatus === 'offline'
+              ? `Your price for ${report.crop} at ${report.market_name} is saved locally and will sync automatically once you're back online.`
+              : `Your price for ${report.crop} at ${report.market_name} is syncing now.`
+          );
+        }}
+      />
     </ScrollView>
   );
 }
@@ -272,6 +378,64 @@ const getStyles = (colors) =>
   },
   screenTitle: { fontSize: 19, fontWeight: '800', color: colors.text },
   cachedLabel: { fontSize: 10, color: colors.textMuted },
+  reportPriceBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    alignSelf: 'flex-start',
+    backgroundColor: colors.primarySoft,
+    borderRadius: RADIUS.pill,
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.sm,
+    marginBottom: SPACING.md,
+  },
+  reportPriceBtnText: { fontSize: 12, fontWeight: '700', color: colors.primaryDark },
+  pendingBadge: {
+    backgroundColor: colors.warning,
+    borderRadius: RADIUS.pill,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    marginLeft: 4,
+  },
+  pendingBadgeText: { fontSize: 9, fontWeight: '800', color: '#fff' },
+  modalBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' },
+  modalSheet: {
+    backgroundColor: colors.card,
+    borderTopLeftRadius: RADIUS.xl,
+    borderTopRightRadius: RADIUS.xl,
+    padding: SPACING.lg,
+    gap: 6,
+    ...SHADOW.raised,
+  },
+  modalHandle: {
+    width: 36,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: colors.border,
+    alignSelf: 'center',
+    marginBottom: SPACING.sm,
+  },
+  modalTitle: { fontSize: 16, fontWeight: '800', color: colors.text },
+  modalSubtitle: { fontSize: 11, color: colors.textMuted, marginBottom: SPACING.sm },
+  label: { fontSize: 11, fontWeight: '700', color: colors.textMuted, marginTop: SPACING.sm },
+  input: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: RADIUS.md,
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.sm + 1,
+    fontSize: 13,
+    color: colors.text,
+    backgroundColor: colors.card,
+  },
+  modalSubmitBtn: {
+    backgroundColor: colors.primary,
+    borderRadius: RADIUS.pill,
+    alignItems: 'center',
+    paddingVertical: SPACING.md,
+    marginTop: SPACING.lg,
+  },
+  modalSubmitText: { color: '#fff', fontWeight: '800', fontSize: 14 },
   sectionTitle: { fontSize: 14, fontWeight: '800', color: colors.text, marginBottom: SPACING.sm },
   bestPricesSection: { marginBottom: SPACING.lg },
   sectionSubtitle: { fontSize: 10, color: colors.textMuted, marginTop: -6, marginBottom: SPACING.sm },

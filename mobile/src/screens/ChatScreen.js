@@ -4,10 +4,31 @@ import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../context/ThemeContext';
 import { RADIUS, SPACING } from '../utils/theme';
 
-export default function ChatScreen({ localDb, setLocalDb, chatRecipient, networkStatus, addLog, syncData, onBack, ownerId, onViewProfile }) {
+export default function ChatScreen({
+  localDb,
+  setLocalDb,
+  chatRecipient,
+  initialMessage,
+  networkStatus,
+  addLog,
+  syncData,
+  onBack,
+  ownerId,
+  onViewProfile,
+}) {
   const { colors } = useTheme();
   const styles = getStyles(colors);
-  const [chatMessage, setChatMessage] = useState('');
+  const [chatMessage, setChatMessage] = useState(initialMessage || '');
+
+  // Seeds the input from a draft (e.g. "I Can Supply This" on a buyer
+  // request) each time a *new* draft arrives for this chat — not on every
+  // render, so the seller can freely edit or clear it without it snapping
+  // back. An empty/undefined initialMessage (the normal case, opening chat
+  // from a listing) never overwrites whatever's already typed.
+  useEffect(() => {
+    if (initialMessage) setChatMessage(initialMessage);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialMessage]);
 
   // owner_id is the seller's stable account id — prefer it so chat history
   // survives a farmer editing their display name/phone later, and so review

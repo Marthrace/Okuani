@@ -16,6 +16,7 @@ export default function FarmerPortalScreen({
   setLocalDb,
   networkStatus,
   hasPendingChanges,
+  onToggleOffline,
   addLog,
   syncData,
   onSwitchRole,
@@ -23,9 +24,9 @@ export default function FarmerPortalScreen({
   defaultName,
   auth,
   onViewProfile,
-  onIdentityPress,
   unreadCount,
   onNotificationsPress,
+  onViewStockBoard,
 }) {
   const { colors } = useTheme();
   const styles = getStyles(colors);
@@ -60,9 +61,9 @@ export default function FarmerPortalScreen({
   const listRef = useRef(null);
 
   // The header greeting always shows the signed-in account's own name — it
-  // must never react to the Farmer Name field below, which is a per-listing
-  // value (a farmer may list under different farm names on different
-  // listings) and is intentionally a completely separate piece of state.
+  // must never react to the Seller Name field below, which is a per-listing
+  // value (a seller may list under different farm/business names on
+  // different listings) and is intentionally a completely separate piece of state.
   const headerName = (defaultName && defaultName.trim()) || 'Farmer';
 
   const myListings = localDb.listings.filter((l) => !l.deleted && l.owner_id === ownerId);
@@ -182,9 +183,6 @@ export default function FarmerPortalScreen({
         <View style={styles.heroBrandRow}>
           <Text style={styles.heroBrand}>OKUANI</Text>
           <View style={styles.heroIcons}>
-            <Pressable style={styles.heroIconChip} onPress={onIdentityPress} hitSlop={6}>
-              <Ionicons name={auth?.isGuest ? 'person-outline' : 'person'} size={14} color="#fff" />
-            </Pressable>
             {onNotificationsPress && (
               <Pressable style={styles.heroIconChip} onPress={onNotificationsPress} hitSlop={6}>
                 <Ionicons name={unreadCount > 0 ? 'notifications' : 'notifications-outline'} size={14} color="#fff" />
@@ -195,13 +193,24 @@ export default function FarmerPortalScreen({
                 )}
               </Pressable>
             )}
-            <View style={styles.heroIconChip}>
+            {/* Same tap-to-toggle "Simulate Offline Mode" control as
+                Header.js — this screen renders its own hero instead of the
+                shared Header, so it needs its own copy of the toggle. */}
+            <Pressable
+              style={styles.heroIconChip}
+              onPress={onToggleOffline}
+              disabled={!onToggleOffline}
+              hitSlop={6}
+              accessibilityRole="switch"
+              accessibilityLabel="Simulate offline mode"
+              accessibilityState={{ checked: networkStatus === 'offline' }}
+            >
               <Ionicons
                 name={networkStatus === 'online' ? 'wifi' : 'cloud-offline-outline'}
                 size={14}
                 color={networkStatus === 'online' ? '#fff' : '#FCA5A5'}
               />
-            </View>
+            </Pressable>
             <View style={styles.heroIconChip}>
               <Ionicons name={hasPendingChanges ? 'sync-outline' : 'checkmark-done'} size={14} color="#fff" />
             </View>
@@ -240,11 +249,11 @@ export default function FarmerPortalScreen({
             <View style={styles.formCard}>
             <Text style={styles.formTitle}>List New Produce</Text>
 
-            <Text style={styles.label}>Farmer Name</Text>
+            <Text style={styles.label}>Seller Name</Text>
             <TextInput style={styles.input} placeholder="Your name" value={farmerName} onChangeText={setFarmerName} />
             <Text style={styles.hintText}>
               Defaults to your profile name — change it if this listing sells under a different
-              farm/business name.
+              seller/business name.
             </Text>
 
             <Text style={styles.label}>Phone</Text>
@@ -348,6 +357,19 @@ export default function FarmerPortalScreen({
               <Text style={styles.primaryBtnText}>Add Listing</Text>
             </Pressable>
           </View>
+
+          {onViewStockBoard && (
+            <Pressable style={styles.stockBoardBanner} onPress={onViewStockBoard}>
+              <View style={styles.stockBoardBannerIcon}>
+                <Ionicons name="megaphone-outline" size={18} color={colors.refGreen} />
+              </View>
+              <View style={styles.stockBoardBannerBody}>
+                <Text style={styles.stockBoardBannerTitle}>Buyer Requests</Text>
+                <Text style={styles.stockBoardBannerSubtitle}>See what buyers are currently looking to purchase</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={16} color={colors.textMuted} />
+            </Pressable>
+          )}
 
           {contacts.length > 0 && (
             <View style={styles.contactsSection}>
@@ -575,6 +597,28 @@ const getStyles = (colors) =>
     paddingVertical: 2,
   },
   countPillText: { fontSize: 11, fontWeight: '800', color: colors.refGreen },
+  stockBoardBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.sm + 2,
+    backgroundColor: colors.card,
+    borderRadius: RADIUS.lg,
+    padding: SPACING.md,
+    marginHorizontal: SPACING.lg,
+    marginBottom: SPACING.lg,
+    ...SHADOW.card,
+  },
+  stockBoardBannerIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: RADIUS.pill,
+    backgroundColor: colors.refSage,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  stockBoardBannerBody: { flex: 1, gap: 1 },
+  stockBoardBannerTitle: { fontSize: 13, fontWeight: '800', color: colors.text },
+  stockBoardBannerSubtitle: { fontSize: 10, color: colors.textMuted },
   contactsSection: { marginHorizontal: SPACING.lg, marginBottom: SPACING.lg },
   contactsList: {
     backgroundColor: colors.card,
